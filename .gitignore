@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# apps/mcp-server build output
+apps/mcp-server/dist/
+
+# ENV — secrets live ONLY here, never in git (Invariante 1)
+.env
+.env.local
+.env*.local
+.env.production
+
+# Vercel / Supabase local state
+.vercel
+supabase/.temp/
+
+# Logs & OS noise
+*.log
+.DS_Store
+
+# TypeScript build info
+*.tsbuildinfo

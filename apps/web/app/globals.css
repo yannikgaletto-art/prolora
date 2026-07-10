@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+
+/* Design tokens (Tailwind v4 CSS-first config — there is no tailwind.config.ts).
+   Neutral grey base, one warm teal accent. Light-only: dark mode is Phase 2. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* Accent — #0F6E56 is the brand primary (primary-600). */
+  --color-primary-50: #eef7f4;
+  --color-primary-100: #d4ebe3;
+  --color-primary-200: #a9d7c7;
+  --color-primary-300: #74bda6;
+  --color-primary-400: #429e83;
+  --color-primary-500: #1d8267;
+  --color-primary-600: #0f6e56;
+  --color-primary-700: #0c5745;
+  --color-primary-800: #0a4437;
+  --color-primary-900: #07322a;
+}
+
+/* System font stack, no webfont request. */
+html {
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The native <dialog> backdrop is not reachable from Tailwind utilities. */
+dialog::backdrop {
+  background-color: rgb(15 23 42 / 0.45);
+}
+
+dialog[open] {
+  animation: modal-in 120ms ease-out;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
