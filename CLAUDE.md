@@ -48,7 +48,7 @@ Unter `1) Architekture/` liegt kein Prosa-Design-Dokument, sondern eine Reihe **
    - FABLE-03: Risikomatrix (12 durchnummerierte Risiken R1–R12) + Sicherheits-Invarianten
    - FABLE-04: Discovery-Layer (Wettbewerbsanalyse, Zwei-Stufen-Keyword→LLM-Filter)
 3. **`FABLE-05-Execution-Prompt.md`** — der Master-Prompt, der den Backend-Bau tatsächlich angestoßen hat. Definiert 4 Phasen (A: OAuth, B: Publishing, C: Feedback, D: Discovery), eine Liste verbotener Dateien ("Sperrzone") und **9 nummerierte Sicherheits-Invarianten (Invariante 1–6 + D1–D3)** — diese Invarianten sind projektweit bindend, nicht optional.
-4. **`GOAL-RUN1-BACKEND.md` / `GOAL-RUN2-FRONTEND.md` / `GOAL-RUN3-MCP-SERVER.md`** — konkrete Baupläne mit MUST/SHOULD/COULD-Priorisierung und "Verhaltens-Oracles" (Laufzeit-Verhaltenschecks, nicht nur Compile-Checks) als Definition-of-Done.
+4. **`GOAL-RUN1-BACKEND.md` / `GOAL-RUN2-FRONTEND.md` / `GOAL-RUN3-MCP-SERVER.md`** — konkrete Baupläne mit MUST/SHOULD/COULD-Priorisierung und "Verhaltens-Oracles" (Laufzeit-Verhaltenschecks, nicht nur Compile-Checks) als Definition-of-Done. Dazu **`GOAL-RUN4-POST-TEMPLATES.md`** (mehrschichtige Post-Vorlagen mit KI-Draft) — umgesetzt am 2026-07-10 (MUST T0–T2 + MCP-Tools T3: Katalog in `lib/templates/`, Routen unter `api/v1/templates/`, Composer-Integration via `TemplatePicker`; grep-Oracles + `tsc` verifiziert, Laufzeit-UI-Test steht aus). Recherche-Grundlage mit Quellen liegt in `3) Research/Post-Vorlagen-Recherche-2026-07.md`.
 
 **Projektstatus:** Alle drei GOAL-RUN-Phasen sind laut Code-Zustand durchlaufen (0 TODOs, `tsc --noEmit` sauber in beiden Apps, 26/27 MCP-Tools). Das Projekt befindet sich in einer **Polish-/Lückenschluss-Phase**, nicht im Erstaufbau. Bekannte offene Punkte:
 - MCP-Tool `get_usage` fehlt (COULD-Priorität, Credit-Verbrauch abfragen).
@@ -149,3 +149,21 @@ cd apps/mcp-server && npm run build && npm start
 3. Neue Route-Handler folgen dem try/catch → `handleRouteError`-Muster.
 4. Migrationsänderungen nur nach Rückfrage (siehe GOAL-RUN1-Guardrail oben).
 5. Neue Commits enthalten keine Secrets (`.gitignore` prüfen, insbesondere bei neuen Env-/Config-Dateien).
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
