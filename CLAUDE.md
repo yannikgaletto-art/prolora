@@ -65,6 +65,21 @@ Diese ziehen sich als Kommentare durchs ganze `lib/`-Verzeichnis (z. B. `// Inva
 - **Listener dürfen nie werfen** (`poll()` immer fangen) — Dedupe über DB-`UNIQUE`-Constraints + `upsert(...ignoreDuplicates)`.
 - Details und die volle Liste (D1–D3 für Discovery) stehen in FABLE-05 und FABLE-03.
 
+## Wann stoppen und nachfragen (statt zu raten)
+
+Bei diesen Situationen: Arbeit unterbrechen und beim Nutzer nachfragen, statt anzunehmen —
+
+- Änderungen an Auth, Billing, DSGVO-/Datenschutz-Flows oder am DB-Schema (s. Migrations-Guardrail oben).
+- Löschen von Nutzerdaten.
+- Einführung einer neuen externen Abhängigkeit oder eines neuen Drittanbieter-Service (npm-Paket, API, SaaS).
+- Ersetzen einer funktionierenden Implementierung statt sie chirurgisch zu patchen.
+- Zwei Quellen widersprechen sich (z. B. Architektur-Doc vs. tatsächlicher Code) und die Diskrepanz ist für die aktuelle Aufgabe relevant.
+- Jede sonst irreversible oder nach außen sichtbare Aktion (Force-Push, Branch löschen, Deploys außerhalb des normalen `main`-Push-Flows).
+
+Hat der Nutzer für genau dieses Risiko bereits explizit zugestimmt: weitermachen, aber den Blast-Radius kurz benennen.
+
+Für nicht-triviale Bugs bzw. vor dem Melden von "fertig": die Skills `systematic-debugging` bzw. `verification-before-completion` nutzen, statt aus dem Bauch heraus zu reparieren/abzuhaken.
+
 ## Coding-Konventionen
 
 - **Supabase-Clients** — drei getrennte Factories, nie mischen:
