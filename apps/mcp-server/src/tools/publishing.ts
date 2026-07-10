@@ -137,6 +137,73 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
   );
 
   server.tool(
+    'list_templates',
+    'Listet die Post-Vorlagen (Rezepte mit Hooks, Skript-Struktur und CTA-Mechanik). Filterbar nach ' +
+      'Ziel (intent), Post-Typ oder Plattform. Die zurückgegebenen slots sind die Fragen, deren ' +
+      'Antworten draft_from_template erwartet.',
+    {
+      intent: z
+        .enum(['value', 'product', 'community', 'social_proof', 'personal_brand'])
+        .optional()
+        .describe('Was soll der Post erreichen? (z. B. "value" = Autorität aufbauen)'),
+      post_type: z
+        .enum([
+          'value_edu',
+          'product_demo',
+          'review',
+          'unboxing',
+          'tutorial',
+          'transformation',
+          'build_in_public',
+          'lifestyle',
+          'community_fomo',
+          'crowdsourcing',
+        ])
+        .optional(),
+      platform: PLATFORM_ENUM.optional().describe('Nur Vorlagen, die diese Plattform empfehlen.'),
+    },
+    { readOnlyHint: true },
+    async (input) => {
+      try {
+        const result = await client.listTemplates(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'draft_from_template',
+    'Erzeugt einen Post-Entwurf aus einer Vorlage. mode "ai" (Default) kostet 1 AI-Credit; ' +
+      'mode "scaffold" ist kostenlos und liefert ein Gerüst zum Selbst-Ausfüllen. Der Entwurf wird ' +
+      'NICHT gepostet — zeige ihn dem Nutzer und nutze danach create_post.',
+    {
+      template_id: z.string().min(1).describe('id aus list_templates.'),
+      slots: z
+        .record(z.string(), z.string().max(500))
+        .describe('Antworten auf die Slot-Fragen der Vorlage (slot-key → Antwort).'),
+      target_platforms: PLATFORM_ENUM.array()
+        .min(1)
+        .max(5)
+        .describe('Plattform-NAMEN (nicht connection_ids) — bestimmen Ton, CTA-Regeln und Längenbudget.'),
+      mode: z
+        .enum(['scaffold', 'ai'])
+        .optional()
+        .describe('"ai" (Default, 1 Credit, LLM-Draft) oder "scaffold" (0 Credits, Gerüst).'),
+    },
+    {},
+    async (input) => {
+      try {
+        const result = await client.draftFromTemplate(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
     'validate_content',
     'Prüft ob ein Text für die gewählten Plattformen gültig ist (Zeichenlimit). Rein lokale Prüfung, ' +
       'kein API-Call — für Media-Regeln und Sonderfälle nutze adapt_content oder poste testweise.',

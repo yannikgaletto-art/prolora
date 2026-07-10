@@ -21,6 +21,8 @@ import type {
   ResponseMapEntry,
   RetryPostResponse,
   ReuseContentResponse,
+  TemplateDraftResponse,
+  TemplateListResponse,
   VoiceTone,
 } from './types.js';
 
@@ -126,6 +128,23 @@ export class ProloraClient {
 
   listConnections(): Promise<ListConnectionsResponse> {
     return this.request('GET', '/connections');
+  }
+
+  listTemplates(params: {
+    intent?: string;
+    post_type?: string;
+    platform?: string;
+  }): Promise<TemplateListResponse> {
+    return this.request('GET', '/templates', { query: params });
+  }
+
+  draftFromTemplate(input: {
+    template_id: string;
+    slots: Record<string, string>;
+    target_platforms: string[];
+    mode?: 'scaffold' | 'ai';
+  }): Promise<TemplateDraftResponse> {
+    return this.request('POST', '/templates/draft', { body: input, llm: true });
   }
 
   // --- Listening ---

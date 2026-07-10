@@ -12,6 +12,7 @@ import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { ConnectionWithLimit } from '@/lib/connections/list-connections';
 import { PLATFORM_META } from './platform-meta';
+import { TemplatePicker, type AppliedTemplate } from './TemplatePicker';
 
 const MAX_SCHEDULE_DAYS = 60;
 
@@ -30,6 +31,7 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
   const [scheduledAt, setScheduledAt] = useState('');
   const [showFirstComment, setShowFirstComment] = useState(false);
   const [firstComment, setFirstComment] = useState('');
+  const [templateExtras, setTemplateExtras] = useState<AppliedTemplate['extras']>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -68,6 +70,22 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
     setScheduledAt('');
     setShowFirstComment(false);
     setFirstComment('');
+    setTemplateExtras(null);
+  }
+
+  // A template draft lands as normal, editable composer state — the existing
+  // create-post flow stays untouched (GOAL-RUN4 T2-3).
+  function applyTemplate(result: AppliedTemplate) {
+    setContent(result.content);
+    if (result.firstComment) {
+      setShowFirstComment(true);
+      setFirstComment(result.firstComment);
+    }
+    if (result.connectionIds.length > 0) {
+      setSelected(new Set(result.connectionIds));
+    }
+    setAdaptContent(true);
+    setTemplateExtras(result.extras);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -142,7 +160,11 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
   return (
     <>
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        <Card title="Content" description="Write once — Prolora sends it to every account you pick below.">
+        <Card
+          title="Content"
+          description="Write once — Prolora sends it to every account you pick below."
+          actions={<TemplatePicker connections={connections} onApply={applyTemplate} />}
+        >
           <div className="flex flex-col gap-2">
             <Textarea
               aria-label="Post content"
@@ -164,6 +186,61 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
             </div>
           </div>
         </Card>
+
+        {templateExtras && (
+          <Card
+            title={`Template extras — ${templateExtras.templateName}`}
+            description="Prolora can't publish these parts automatically yet — copy what you need."
+            actions={
+              <button
+                type="button"
+                onClick={() => setTemplateExtras(null)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-700"
+              >
+                Dismiss
+              </button>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {templateExtras.slides && templateExtras.slides.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Slides
+                  </p>
+                  <ol className="flex flex-col gap-1.5">
+                    {templateExtras.slides.map((slide, index) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-gray-900">
+                        <span className="mt-0.5 shrink-0 text-xs font-semibold text-gray-400">
+                          {index + 1}.
+                        </span>
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap">{slide}</span>
+                        <button
+                          type="button"
+                          onClick={() => void navigator.clipboard.writeText(slide)}
+                          className="shrink-0 text-xs font-medium text-primary-700 hover:text-primary-800"
+                        >
+                          Copy
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {templateExtras.manualSteps && templateExtras.manualSteps.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Manual steps
+                  </p>
+                  <ul className="flex list-disc flex-col gap-1 pl-4 text-sm text-gray-700">
+                    {templateExtras.manualSteps.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
 
         <Card
           title="Platforms"

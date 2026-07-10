@@ -266,3 +266,48 @@ export interface VoiceConfig {
 export interface GetVoiceConfigResponse {
   voice_config: VoiceConfig;
 }
+
+// --- Templates (GOAL-RUN4) ---
+
+export interface TemplateSlot {
+  key: string;
+  question: string;
+  placeholder?: string;
+  required: boolean;
+  prefill_from?: 'product_description' | 'target_audience';
+}
+
+export interface PostTemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  intent: string;
+  post_type: string;
+  psych_levels: string[];
+  structure: string[];
+  hook_formulas: string[];
+  cta_mechanic: string;
+  style_preset: string;
+  format: string;
+  recommended_platforms: Platform[];
+  slots: TemplateSlot[];
+  manual_steps?: string[];
+}
+
+export interface TemplateListResponse {
+  templates: PostTemplateSummary[];
+  context_available: boolean;
+  ai_enabled: boolean;
+}
+
+export interface TemplateDraftResponse {
+  template_id: string;
+  draft: {
+    content: string;
+    first_comment?: string;
+    slides?: string[];
+    manual_steps?: string[];
+    recommended_platforms: Platform[];
+  };
+  credits_used: number;
+}

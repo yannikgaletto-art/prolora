@@ -425,4 +425,97 @@ export const CREDIT_COSTS = {
   draft_reply: 1,
   community_discovery: 2,
   auto_context: 1,
+  template_draft: 1,
 } as const;
+
+// --- Post Template Types (GOAL-RUN4) ---
+// A template is a fixed, curated combination of the seven layers described in
+// GOAL-RUN4-POST-TEMPLATES.md (intent, post type, psych level, script
+// blueprint, style preset, CTA mechanic, platform adaptation).
+
+export type TemplateIntent = 'value' | 'product' | 'community' | 'social_proof' | 'personal_brand';
+
+export type TemplatePostType =
+  | 'value_edu'
+  | 'product_demo'
+  | 'review'
+  | 'unboxing'
+  | 'tutorial'
+  | 'transformation'
+  | 'build_in_public'
+  | 'lifestyle'
+  | 'community_fomo'
+  | 'crowdsourcing';
+
+export type PsychLevel = 'rational' | 'emotional' | 'social';
+
+export type CtaMechanic =
+  | 'comment_trigger'
+  | 'save_cta'
+  | 'link_in_comment'
+  | 'poll'
+  | 'dm_invite'
+  | 'none';
+
+export type StylePreset = 'neutral' | 'hormozi_carousel' | 'ai_automation_screencast' | 'doku_modus';
+
+export type TemplateFormat = 'text' | 'thread' | 'carousel_pdf' | 'image_text' | 'poll';
+
+export interface TemplateSlot {
+  key: string;
+  /** Wizard question shown to the user (German — catalog data, not UI chrome). */
+  question: string;
+  placeholder?: string;
+  required: boolean;
+  /** Auto-filled from workspace_contexts when the user leaves the slot empty. */
+  prefill_from?: 'product_description' | 'target_audience';
+}
+
+export interface PostTemplate {
+  id: string;
+  name: string;
+  description: string;
+  intent: TemplateIntent;
+  post_type: TemplatePostType;
+  /** Primary level first — steers the drafting angle. */
+  psych_levels: PsychLevel[];
+  /** Ordered script slots, e.g. ['hook', 'kontext', 'demo', 'ergebnis', 'cta']. */
+  structure: string[];
+  /** Fill-in-the-blank hook formulas (German). */
+  hook_formulas: string[];
+  cta_mechanic: CtaMechanic;
+  style_preset: StylePreset;
+  format: TemplateFormat;
+  recommended_platforms: PlatformType[];
+  /** Max 4 user questions. */
+  slots: TemplateSlot[];
+  /** Extra prompt-builder instructions — stripped from API responses. */
+  prompt_hints: string;
+  /** Steps Prolora cannot publish automatically yet (e.g. PDF upload). */
+  manual_steps?: string[];
+}
+
+export type PostTemplateSummary = Omit<PostTemplate, 'prompt_hints'>;
+
+export interface TemplateDraftResult {
+  content: string;
+  first_comment?: string;
+  /** Carousel slide texts; for screencast presets, slides[0] is the overlay line. */
+  slides?: string[];
+  manual_steps?: string[];
+  recommended_platforms: PlatformType[];
+}
+
+export interface TemplateListResponse {
+  templates: PostTemplateSummary[];
+  /** Whether workspace_contexts has a row — powers slot-prefill hints. */
+  context_available: boolean;
+  /** Whether the workspace plan includes AI credits (scaffold mode always works). */
+  ai_enabled: boolean;
+}
+
+export interface TemplateDraftResponse {
+  template_id: string;
+  draft: TemplateDraftResult;
+  credits_used: number;
+}

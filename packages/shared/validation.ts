@@ -76,3 +76,14 @@ export const boardItemCreateSchema = z.object({
 export const feedbackStatusSchema = z.object({
   status: z.enum(['new', 'reviewed', 'planned', 'in_progress', 'shipped']),
 });
+
+export const templateDraftSchema = z.object({
+  template_id: z.string().min(1).max(100),
+  slots: z.record(z.string(), z.string().max(500)),
+  target_platforms: z
+    .array(z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']))
+    .min(1)
+    .max(5),
+  mode: z.enum(['scaffold', 'ai']).default('ai'),
+  workspace_id: z.string().uuid().optional(),
+});
