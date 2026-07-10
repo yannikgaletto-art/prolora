@@ -12,11 +12,9 @@ Prolora (Codename in den Architektur-Docs: **EchoHub**) ist eine DSGVO-konforme 
 
 Dazu kommt ein **MCP-Server**, der Publish/Listen/Discover-Funktionen direkt in Claude verfügbar macht.
 
-## ⚠️ Wichtigste Falle: Naming-Drift EchoHub → Prolora
+## Naming
 
-Das Produkt hieß ursprünglich **EchoHub** und wurde zu **Prolora** umbenannt. Der Code ist vollständig migriert (`x-prolora-key` Header, `PROLORA_API_KEY`, `@prolora/web`/`@prolora/mcp-server`/`@prolora/shared`, `ProloraClient`, deutsche Fehlertexte mit "prolora.eu"). **Die Architektur-Docs unter `1) Architekture/` wurden dabei nicht mitgezogen** — sie sprechen weiterhin durchgehend von `ECHOHUB_API_KEY`, `x-echohub-key`, `@echohub/mcp-server`, `echohub.eu`.
-
-→ Wenn du aus den Architektur-Docs zitierst oder implementierst: **immer `echohub` → `prolora` im Kopf übersetzen.** Wenn unklar, welcher Name in einer neuen Datei gilt: der Code hat Vorrang vor den Docs.
+Das Produkt hieß in einer früheren Phase **EchoHub** und wurde zu **Prolora** umbenannt. Code und Architektur-Docs (`1) Architekture/`, inkl. der umbenannten `prolora-implementation-spec.md`) sind durchgängig auf "Prolora" vereinheitlicht (`x-prolora-key` Header, `PROLORA_API_KEY`, `@prolora/web`/`@prolora/mcp-server`/`@prolora/shared`, `ProloraClient`, "prolora.eu"). Falls dir irgendwo noch "EchoHub"/"echohub" begegnet (z. B. in Notizen außerhalb des Repos oder in `.claude/settings.local.json`-Permission-Caches), ist das ein Überbleibsel und sollte auf "Prolora" korrigiert werden.
 
 ## Repo-Layout
 
@@ -125,7 +123,7 @@ cd apps/mcp-server && npm run build && npm start
 
 ## Wichtige Lücken im Tooling — worauf achten
 
-- **Kein Git-Repo.** Weder `prolora/` noch der übergeordnete Ordner sind versioniert. Sei entsprechend vorsichtig bei destruktiven Dateioperationen — es gibt kein Undo über `git`. Wenn du regelmäßig hier arbeitest, schlage `git init` vor, statt es einfach zu tun.
+- **Git**: `prolora/` ist versioniert und auf GitHub gespiegelt (privates Repo `yannikgaletto-art/prolora`, verbunden mit Vercel für Auto-Deploys auf `main`). Der übergeordnete Ordner (Architektur-Docs, Knowledge Database) ist weiterhin **nicht** versioniert — sei dort vorsichtig bei destruktiven Dateioperationen.
 - **Keine Tests.** Kein `vitest`/`jest`, keine `*.test.ts`-Dateien. Verifikation läuft aktuell nur über `tsc --noEmit` und die "Verhaltens-Oracles" aus den GOAL-RUN-Docs (manuelles/Agent-Durchspielen von Flows). Wenn du testbaren Code hinzufügst, sprich mit dem Nutzer ab, ob ein Test-Setup eingeführt werden soll — es existiert noch keine Konvention dafür.
 - **Kein CI.** Keine `.github/workflows`. `tsc --noEmit` in beiden Apps vor Abschluss einer Aufgabe manuell laufen lassen.
 
@@ -134,5 +132,5 @@ cd apps/mcp-server && npm run build && npm start
 1. `tsc --noEmit` in `apps/web` und ggf. `apps/mcp-server` läuft sauber durch.
 2. Neue DB-Zugriffe nutzen `getServiceDb()` **mit** explizitem `workspace_id`-Filter, kein `select('*')` auf Tabellen mit PII/Secrets.
 3. Neue Route-Handler folgen dem try/catch → `handleRouteError`-Muster.
-4. Falls ein Feature aus den Architektur-Docs stammt: `echohub` → `prolora` Naming geprüft, nicht blind übernommen.
-5. Migrationsänderungen nur nach Rückfrage (siehe GOAL-RUN1-Guardrail oben).
+4. Migrationsänderungen nur nach Rückfrage (siehe GOAL-RUN1-Guardrail oben).
+5. Neue Commits enthalten keine Secrets (`.gitignore` prüfen, insbesondere bei neuen Env-/Config-Dateien).
