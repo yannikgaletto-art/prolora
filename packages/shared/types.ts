@@ -426,6 +426,7 @@ export const CREDIT_COSTS = {
   community_discovery: 2,
   auto_context: 1,
   template_draft: 1,
+  template_prefill: 1,
 } as const;
 
 // --- Post Template Types (GOAL-RUN4) ---
@@ -461,14 +462,47 @@ export type StylePreset = 'neutral' | 'hormozi_carousel' | 'ai_automation_screen
 
 export type TemplateFormat = 'text' | 'thread' | 'carousel_pdf' | 'image_text' | 'poll';
 
+/**
+ * What kind of answer a slot expects — governs what the AI may prefill
+ * (GOAL-RUN5 T4/V4). 'fact' (real numbers/names) and 'erfahrung' (lived
+ * experience) are NEVER prefilled with values: inventing them would fake
+ * authenticity and is UWG-risky. Only 'angle' slots may receive AI values.
+ */
+export type TemplateSlotKind = 'fact' | 'erfahrung' | 'angle';
+
 export interface TemplateSlot {
   key: string;
   /** Wizard question shown to the user (German — catalog data, not UI chrome). */
   question: string;
+  /** Why we ask / what a good answer looks like (one line, German). */
+  help: string;
+  /** Concrete example answer, shown below the field — never inserted as value. */
+  example: string;
+  kind: TemplateSlotKind;
   placeholder?: string;
   required: boolean;
   /** Auto-filled from workspace_contexts when the user leaves the slot empty. */
   prefill_from?: 'product_description' | 'target_audience';
+}
+
+export interface TemplateBenchmark {
+  metrik: string;
+  /** Honest range, never a promise (e.g. "≈ 1,9× Reichweite vs. Text-Post"). */
+  wert: string;
+  /** Source label — must never be empty (Oracle O7). */
+  quelle: string;
+}
+
+/** Strategy panel data (GOAL-RUN5 — user feedback #6: Ziel, Strategie, Erwartung). */
+export interface TemplateStrategy {
+  /** One sentence: what this post achieves strategically. */
+  ziel: string;
+  /** Exactly three bullets: why the mechanic works. */
+  warum: [string, string, string];
+  benchmarks: TemplateBenchmark[];
+  aufwand: 'niedrig' | 'mittel' | 'hoch';
+  frequenz: string;
+  voraussetzungen?: string[];
 }
 
 export interface PostTemplate {
@@ -487,6 +521,12 @@ export interface PostTemplate {
   style_preset: StylePreset;
   format: TemplateFormat;
   recommended_platforms: PlatformType[];
+  /**
+   * Which "Was hast du zur Hand?"-Anlässe lead to this template (explicit
+   * curation, GOAL-RUN5 T2 — keys from ANLASS_INFO in lib/templates/guide.ts).
+   */
+  anlass_keys: string[];
+  strategy: TemplateStrategy;
   /** Max 4 user questions. */
   slots: TemplateSlot[];
   /** Extra prompt-builder instructions — stripped from API responses. */
@@ -517,5 +557,24 @@ export interface TemplateListResponse {
 export interface TemplateDraftResponse {
   template_id: string;
   draft: TemplateDraftResult;
+  credits_used: number;
+}
+
+/** UI chrome locales (GOAL-RUN5 D7/T1 — catalog content stays German for now). */
+export type AppLocale = 'de' | 'en' | 'es';
+
+export interface SlotSuggestion {
+  key: string;
+  value: string;
+  /**
+   * true ⇒ show as example below the field, never as the field value.
+   * Code-enforced for 'fact'/'erfahrung' slots (Oracle O4/O11).
+   */
+  is_example: boolean;
+}
+
+export interface TemplatePrefillResponse {
+  template_id: string;
+  suggestions: SlotSuggestion[];
   credits_used: number;
 }

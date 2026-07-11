@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getConnectionsWithCharacterLimits } from '@/lib/connections/list-connections';
+import { getDict } from '@/lib/i18n';
+import { getLocale } from '@/lib/i18n/server';
 import { PublishTabs } from './PublishTabs';
 import { PostComposer } from './PostComposer';
 
@@ -15,7 +17,11 @@ export default async function PublishPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/login');
 
-  const connections = await getConnectionsWithCharacterLimits(workspace.id);
+  const [connections, locale] = await Promise.all([
+    getConnectionsWithCharacterLimits(workspace.id),
+    getLocale(),
+  ]);
+  const dict = getDict(locale);
 
   return (
     <div className="flex flex-col gap-6">
@@ -26,7 +32,15 @@ export default async function PublishPage() {
         </p>
       </div>
       <PublishTabs active="compose" />
-      <PostComposer connections={connections} />
+      <PostComposer
+        connections={connections}
+        wizardStrings={{
+          entryButton: dict.entry_button,
+          entryPromise: dict.entry_promise,
+          toastApplied: dict.toast_applied,
+          toastExpired: dict.toast_expired,
+        }}
+      />
     </div>
   );
 }

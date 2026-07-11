@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { FormEvent } from 'react';
 import type { CreatePostRequest, CreatePostResponse } from '@prolora/shared';
@@ -12,7 +12,15 @@ import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { ConnectionWithLimit } from '@/lib/connections/list-connections';
 import { PLATFORM_META } from './platform-meta';
-import { TemplatePicker, type AppliedTemplate } from './TemplatePicker';
+import { takeAppliedTemplate, type AppliedTemplate } from './handoff';
+
+/** Wizard chrome strings the server page resolves via lib/i18n (GOAL-RUN5). */
+export interface ComposerWizardStrings {
+  entryButton: string;
+  entryPromise: string;
+  toastApplied: string;
+  toastExpired: string;
+}
 
 const MAX_SCHEDULE_DAYS = 60;
 
@@ -23,7 +31,13 @@ function toLocalInputValue(date: Date): string {
   )}:${pad(date.getMinutes())}`;
 }
 
-export function PostComposer({ connections }: { connections: ConnectionWithLimit[] }) {
+export function PostComposer({
+  connections,
+  wizardStrings,
+}: {
+  connections: ConnectionWithLimit[];
+  wizardStrings: ComposerWizardStrings;
+}) {
   const [content, setContent] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adaptContent, setAdaptContent] = useState(false);
@@ -87,6 +101,21 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
     setAdaptContent(true);
     setTemplateExtras(result.extras);
   }
+
+  // Wizard handoff (GOAL-RUN5 G4): the templates page stored the draft in
+  // sessionStorage before navigating here. Read-and-clear exactly once; an
+  // expired payload surfaces as a toast, never as silently stale content.
+  useEffect(() => {
+    const result = takeAppliedTemplate(Date.now());
+    if (result.status === 'applied') {
+      applyTemplate(result.payload);
+      setToast({ variant: 'success', message: wizardStrings.toastApplied });
+    } else if (result.status === 'expired') {
+      setToast({ variant: 'info', message: wizardStrings.toastExpired });
+    }
+    // Mount-only by design — applyTemplate/wizardStrings are stable per page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -163,7 +192,15 @@ export function PostComposer({ connections }: { connections: ConnectionWithLimit
         <Card
           title="Content"
           description="Write once — Prolora sends it to every account you pick below."
-          actions={<TemplatePicker connections={connections} onApply={applyTemplate} />}
+          actions={
+            <Link
+              href="/publish/templates"
+              title={wizardStrings.entryPromise}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+            >
+              {wizardStrings.entryButton}
+            </Link>
+          }
         >
           <div className="flex flex-col gap-2">
             <Textarea

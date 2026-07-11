@@ -1,8 +1,11 @@
-// Template catalog v1 — pure data, no logic, no DB access (GOAL-RUN4 T0-2,
-// Oracle 1). Content mirrors GOAL-RUN4-POST-TEMPLATES.md Appendix A verbatim;
-// the research evidence lives in "3) Research/Post-Vorlagen-Recherche-2026-07.md".
-// Catalog data (names, questions, hooks) is German by design — it is product
-// content for the DACH market, not UI chrome.
+// Template catalog v2 — pure data, no logic, no DB access (Oracle O1).
+// GOAL-RUN4 content, extended by GOAL-RUN5: strategy block per template
+// (user feedback #6), explicit anlass_keys (T2 curation — every goal keeps
+// ≥ 2 real paths, no Scheinentscheidungen), and the 52-slot audit (question,
+// help, example, kind). Slot kinds govern AI prefill: 'fact' and 'erfahrung'
+// are NEVER given values by the AI (authenticity/UWG guardrail, T4).
+// Research evidence: "3) Research/Post-Vorlagen-Recherche-2026-07.md".
+// Catalog data is German by design — DACH product content, not UI chrome.
 import type { PostTemplate } from '@prolora/shared';
 
 export const TEMPLATE_CATALOG: PostTemplate[] = [
@@ -23,11 +26,58 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['nichts'],
+    strategy: {
+      ziel: 'Autorität aufbauen: ein Post, den deine Zielgruppe speichert und wieder hervorholt.',
+      warum: [
+        'Listen sind ohne Anstrengung scanbar — genau so liest dein Feed.',
+        'Komplett verschenktes Wissen baut Vertrauen auf, bevor du je etwas verkaufst.',
+        'Der nützlichste Punkt sitzt spät im Post — das erzeugt Saves statt flüchtiger Likes.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Speicherquote',
+          wert: 'Listen/Frameworks gehören zu den meistgespeicherten Formaten',
+          quelle: 'LinkedIn-Creator-Format-Analysen 2024/25',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: '1–2× pro Woche',
+    },
     slots: [
-      { key: 'thema', question: 'Worum geht es? (ein Problem deiner Zielgruppe)', required: true },
-      { key: 'kernpunkte', question: 'Deine 3–5 Punkte (kommagetrennt)', required: true },
-      { key: 'beleg', question: 'Woher weißt du das? (Zahl, Analyse, Erfahrung)', required: false },
-      { key: 'zielgruppe', question: 'Für wen ist das?', required: false, prefill_from: 'target_audience' },
+      {
+        key: 'thema',
+        question: 'Welches Problem deiner Zielgruppe nimmst du dir vor?',
+        help: 'Ein einziges, konkretes Problem — je enger, desto stärker der Post.',
+        example: 'Social-Media-Posts dauern ewig und bringen nichts',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'kernpunkte',
+        question: 'Deine 3–5 Punkte dazu (kommagetrennt)',
+        help: 'Stichworte reichen — die KI formuliert daraus die Liste.',
+        example: 'Hook zuerst schreiben, eine Idee pro Post, feste Posting-Zeit',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'beleg',
+        question: 'Woher weißt du das? (deine echte Zahl, Analyse oder Erfahrung)',
+        help: 'Ein Beweis macht die Liste glaubwürdig — ohne bleibt es Meinung.',
+        example: '50 eigene Posts ausgewertet',
+        kind: 'fact',
+        required: false,
+      },
+      {
+        key: 'zielgruppe',
+        question: 'Für wen schreibst du das?',
+        help: 'Wird im Hook angesprochen — „Solo-Founder" zieht besser als „alle".',
+        example: 'Solo-Founder ohne Marketing-Team',
+        kind: 'angle',
+        required: false,
+        prefill_from: 'target_audience',
+      },
     ],
     prompt_hints:
       'Genau eine Idee pro Absatz. Spezifische Zahlen statt Adjektive. Save-würdig schreiben ' +
@@ -50,16 +100,60 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'hormozi_carousel',
     format: 'carousel_pdf',
     recommended_platforms: ['linkedin'],
+    anlass_keys: ['nichts'],
+    strategy: {
+      ziel: 'Maximale Reichweite für dein Wissen: das Playbook-Format, das LinkedIn belohnt.',
+      warum: [
+        'Dokument-Posts halten Leser mehrere Sekunden pro Slide — der Algorithmus liest das als Qualität.',
+        '„Proof schlägt Promise": Slide 2 liefert den Beweis, bevor irgendjemand etwas glauben muss.',
+        'Der Asset-CTA am Ende verwandelt Reichweite in Kommentare und Gespräche.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Reichweite vs. Text-Post',
+          wert: '≈ 1,6–1,9× für Dokument-/Karussell-Posts',
+          quelle: 'LinkedIn-Format-Studien 2024/25',
+        },
+      ],
+      aufwand: 'hoch',
+      frequenz: '1× pro Woche',
+      voraussetzungen: ['Design-Tool für PDF-Slides (Canva/Figma/Keynote)'],
+    },
     slots: [
-      { key: 'thema', question: 'Worum geht es? (ein Thema, eine These)', required: true },
-      { key: 'kernpunkte', question: 'Deine 3–5 Kernpunkte (kommagetrennt)', required: true },
+      {
+        key: 'thema',
+        question: 'Deine eine These für dieses Karussell?',
+        help: 'Ein Thema, eine steile These — Slide 1 muss in max. 8 Worte passen.',
+        example: 'Die meisten Posts scheitern in der ersten Zeile',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'kernpunkte',
+        question: 'Deine 3–5 Kernpunkte (kommagetrennt)',
+        help: 'Je Punkt eine Slide: Regel + ein Satz Begründung.',
+        example: 'Hook vor Inhalt, Zahlen statt Adjektive, ein CTA pro Post',
+        kind: 'angle',
+        required: true,
+      },
       {
         key: 'beleg',
-        question: 'Woher weißt du das? (Zahl, Erfahrung, Analyse)',
+        question: 'Dein Beweis für Slide 2? (echte Zahl, Analyse, Referenz)',
+        help: '„Proof schlägt Promise" — ohne Beweis-Slide fällt das Format zusammen.',
+        example: '200 LinkedIn-Posts von 10 Creators ausgewertet',
+        kind: 'fact',
+        // Kein prefill_from: eine Produktbeschreibung ist kein Beweis (T4/UWG) —
+        // der Beweis-Slot bleibt immer eine echte Nutzer-Angabe.
         required: true,
-        prefill_from: 'product_description',
       },
-      { key: 'asset', question: 'Welches Asset gibst du gegen einen Kommentar heraus?', required: false },
+      {
+        key: 'asset',
+        question: 'Welches Asset gibst du gegen einen Kommentar heraus?',
+        help: 'Muss wirklich existieren — nur versprechen, was du liefern kannst.',
+        example: 'Notion-Vorlage „Post-Playbook"',
+        kind: 'fact',
+        required: false,
+      },
     ],
     prompt_hints:
       'Playbook-Stil: Slide 1 = Bold Claim (max. 8 Worte), Slide 2 = Proof (Zahl/Referenz — ' +
@@ -89,15 +183,59 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['feature'],
+    strategy: {
+      ziel: 'Wissen in Gespräche verwandeln: die Anleitung überzeugt, das Asset holt die Kommentare.',
+      warum: [
+        'Eine nachmachbare Anleitung beweist Kompetenz besser als jede Behauptung.',
+        'Das Trigger-Wort senkt die Hürde auf einen einzigen Kommentar — kein Link, kein Formular.',
+        'Jeder Kommentar startet ein 1:1-Gespräch mit einem vorqualifizierten Lead.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Kommentare vs. Link-Post',
+          wert: '≈ 2–5× durch Comment-Trigger',
+          quelle: 'Comment-to-DM-Funnel-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'mittel',
+      frequenz: '1× pro Woche',
+      voraussetzungen: ['Das versprochene Asset existiert', 'DMs manuell beantworten (keine Automation)'],
+    },
     slots: [
-      { key: 'ergebnis', question: 'Was kann der Leser am Ende? (konkretes Ergebnis)', required: true },
-      { key: 'schritte', question: 'Nenne die Schritte in Stichworten (3–7, kommagetrennt)', required: true },
       {
-        key: 'asset',
-        question: 'Welches Asset gibst du gegen einen Kommentar heraus? (z. B. Vorlage, JSON, Checkliste)',
+        key: 'ergebnis',
+        question: 'Was kann der Leser am Ende der Anleitung?',
+        help: 'Das konkrete Endergebnis — es steht im Hook UND am Schluss.',
+        example: 'Posts automatisch auf 5 Plattformen veröffentlichen',
+        kind: 'angle',
         required: true,
       },
-      { key: 'zielgruppe', question: 'Für wen ist das?', required: false, prefill_from: 'target_audience' },
+      {
+        key: 'schritte',
+        question: 'Die Schritte in Stichworten (3–7, kommagetrennt)',
+        help: 'Grob reicht — die KI macht daraus nummerierte, nachmachbare Schritte.',
+        example: 'Account verbinden, Vorlage wählen, Zeitplan setzen',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'asset',
+        question: 'Welches Asset gibst du gegen einen Kommentar heraus?',
+        help: 'Vorlage, Checkliste, JSON — es muss fertig sein, bevor der Post live geht.',
+        example: 'n8n-Workflow als JSON-Export',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'zielgruppe',
+        question: 'Für wen ist die Anleitung?',
+        help: 'Bestimmt Ton und Vorwissen — „ohne Code-Kenntnisse" senkt die Hürde.',
+        example: 'Solo-Founder ohne Dev-Hintergrund',
+        kind: 'angle',
+        required: false,
+        prefill_from: 'target_audience',
+      },
     ],
     prompt_hints:
       'Jeder Schritt maximal ein Satz plus optional ein konkreter Wert (Aktion + kurzes Warum/Stolperfalle). ' +
@@ -124,11 +262,57 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'mastodon', 'telegram', 'bluesky'],
+    anlass_keys: ['feature'],
+    strategy: {
+      ziel: 'Reines Weiterhelfen ohne Gegenleistung — der Post, der dich überall willkommen macht.',
+      warum: [
+        'Wer teilt, wirkt selbst kompetent — Tutorials werden deshalb überdurchschnittlich geteilt.',
+        'Ohne Funnel-Mechanik funktioniert das Format auch in marketing-skeptischen Räumen (Mastodon!).',
+        'Sachlicher Ton + nachmachbare Schritte = der sicherste Autoritäts-Baustein überhaupt.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Teil-/Speicherquote',
+          wert: 'How-Tos werden überdurchschnittlich geteilt und gespeichert',
+          quelle: 'Plattform-Format-Analysen 2025',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: '1–2× pro Woche',
+    },
     slots: [
-      { key: 'ergebnis', question: 'Was kann der Leser am Ende?', required: true },
-      { key: 'schritte', question: 'Die Schritte in Stichworten (3–7, kommagetrennt)', required: true },
-      { key: 'zeit', question: 'Wie lange dauert es? (z. B. "10 Minuten")', required: false },
-      { key: 'voraussetzungen', question: 'Was braucht man vorher? (optional)', required: false },
+      {
+        key: 'ergebnis',
+        question: 'Was kann der Leser am Ende?',
+        help: 'Das konkrete Ergebnis — Hook und Schlusssatz in einem.',
+        example: 'Eigenen Mastodon-Server in 10 Minuten aufsetzen',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'schritte',
+        question: 'Die Schritte in Stichworten (3–7, kommagetrennt)',
+        help: 'Grob reicht — die KI ergänzt pro Schritt ein Warum oder eine Stolperfalle.',
+        example: 'Server mieten, Docker-Compose kopieren, Domain verbinden',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'zeit',
+        question: 'Wie lange dauert es wirklich?',
+        help: 'Deine ehrliche Zeitangabe — sie macht den Hook konkret.',
+        example: '10 Minuten',
+        kind: 'fact',
+        required: false,
+      },
+      {
+        key: 'voraussetzungen',
+        question: 'Was braucht man vorher?',
+        help: 'Ehrliche Einstiegshürden nennen — das filtert Frust-Kommentare weg.',
+        example: 'Eine eigene Domain, 5 €/Monat Server',
+        kind: 'angle',
+        required: false,
+      },
     ],
     prompt_hints:
       'Nummerierte, nachmachbare Schritte; pro Schritt Aktion + kurzes Warum oder Stolperfalle. ' +
@@ -152,16 +336,58 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['zahl'],
+    strategy: {
+      ziel: 'Produkt zeigen, ohne zu werben: das messbare Ergebnis überzeugt, das Produkt ist Werkzeug.',
+      warum: [
+        'Eine echte Ersparnis-Zahl im Hook schlägt jede Feature-Liste — Ergebnis vor Funktion.',
+        'PAS-Struktur (Problem → Schmerz → Lösung) holt Leser bei ihrem eigenen Frust ab.',
+        'Founder-Ton statt Pressemitteilung umgeht die Werbe-Abwehr des Feeds.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Qualifizierte Nachfragen',
+          wert: 'Ergebnis-Demos erzeugen „Wie hast du das gebaut?"-Kommentare statt leerer Likes',
+          quelle: 'Founder-/Build-in-public-Fallstudien 2025 (qualitativ)',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: 'max. 1× pro Woche (80/20-Regel: Value vor Produkt)',
+    },
     slots: [
-      { key: 'problem', question: 'Welches nervige Problem löst du?', required: true },
-      { key: 'ersparnis', question: 'Zeit-/Geld-Ersparnis als Zahl', required: true },
+      {
+        key: 'problem',
+        question: 'Welches nervige Problem löst du damit?',
+        help: 'Aus Sicht des Betroffenen formuliert — der Schmerz trägt den Einstieg.',
+        example: 'Jeden Post fünfmal für fünf Plattformen umschreiben',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'ersparnis',
+        question: 'Deine echte Ersparnis als Zahl (Zeit oder Geld)',
+        help: 'Nur echte Zahlen — erfundene Ersparnisse fliegen auf und sind wettbewerbsrechtlich heikel.',
+        example: '4 Stunden pro Woche',
+        kind: 'fact',
+        required: true,
+      },
       {
         key: 'produkt',
-        question: 'Was ist dein Produkt/Setup? (kurz)',
+        question: 'Womit? (dein Produkt/Setup in einem Satz)',
+        help: 'Wird beiläufig erwähnt — das Ergebnis bleibt der Held des Posts.',
+        example: 'Prolora — einmal schreiben, überall veröffentlichen',
+        kind: 'angle',
         required: false,
         prefill_from: 'product_description',
       },
-      { key: 'link', question: 'Link (kommt in den ersten Kommentar bzw. den Post)', required: false },
+      {
+        key: 'link',
+        question: 'Link zum Produkt (optional)',
+        help: 'Auf LinkedIn wandert er automatisch in den ersten Kommentar (Reichweite!).',
+        example: 'https://prolora.eu',
+        kind: 'fact',
+        required: false,
+      },
     ],
     prompt_hints:
       'Genau ein Use-Case. PAS als Gerüst: Problem → Schmerz verstärken (konkrete Kosten des Status quo) → ' +
@@ -184,11 +410,62 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'ai_automation_screencast',
     format: 'image_text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['feature'],
+    strategy: {
+      ziel: 'Einen fertigen Workflow in Leads verwandeln: sehen → wollen → Template gegen Kommentar.',
+      warum: [
+        'Der Screencast-Loop beweist in 5 Sekunden, dass es wirklich funktioniert — kein Behaupten nötig.',
+        'Das verschenkte Template macht aus Zuschauern Kommentare und aus Kommentaren Gespräche.',
+        'Die ehrliche Einschränkung („funktioniert nicht für …") macht den Rest erst glaubwürdig.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Kommentare (Template-CTA)',
+          wert: '≈ 2–5× vs. Link-Post durch Comment-Trigger',
+          quelle: 'AI-Automation-Creator-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'hoch',
+      frequenz: '1× pro Woche',
+      voraussetzungen: [
+        '5–7-Sekunden-Screencast-Loop des Workflows',
+        'Template/Asset zum Verschenken',
+        'DMs manuell beantworten (keine Automation)',
+      ],
+    },
     slots: [
-      { key: 'aufgabe', question: 'Welche manuelle Aufgabe übernimmt die Automation?', required: true },
-      { key: 'ersparnis', question: 'Ersparnis als Zahl (Stunden oder Euro pro Woche)', required: true },
-      { key: 'asset', question: 'Welches Template/Asset gibst du heraus?', required: true },
-      { key: 'stack', question: 'Womit gebaut? (n8n/Make + APIs, optional)', required: false },
+      {
+        key: 'aufgabe',
+        question: 'Welche manuelle Aufgabe übernimmt die Automation?',
+        help: 'Die Aufgabe, die vorher genervt hat — sie trägt den Hook.',
+        example: 'Kundenanfragen sortieren und beantworten',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'ersparnis',
+        question: 'Deine echte Ersparnis als Zahl (Stunden oder Euro pro Woche)',
+        help: 'Nur echte Zahlen — der Hook lebt davon, dass es stimmt.',
+        example: '6 Stunden pro Woche',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'asset',
+        question: 'Welches Template/Asset gibst du heraus?',
+        help: 'Muss existieren und funktionieren — es ist dein Versprechen.',
+        example: 'Der n8n-Workflow als JSON',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'stack',
+        question: 'Womit gebaut? (Tools/APIs)',
+        help: 'Der Stack macht es nachbaubar und beantwortet die häufigste Frage vorweg.',
+        example: 'n8n + Claude API + Google Sheets',
+        kind: 'fact',
+        required: false,
+      },
     ],
     prompt_hints:
       'Caption-Struktur: Ergebnis-Hook mit Zeit-/Geld-Zahl → was der Workflow tut (3–5 Bullets: ' +
@@ -205,7 +482,7 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     id: 'review-honest',
     name: '30-Tage-Fazit',
     description: 'Ehrlicher Erfahrungsbericht mit Stärken UND Schwächen — der Glaubwürdigkeits-Klassiker.',
-    intent: 'value',
+    intent: 'social_proof',
     post_type: 'review',
     psych_levels: ['rational', 'social'],
     structure: ['hook', 'kontext_warum', 'staerken', 'schwaechen', 'fazit_fuer_wen', 'cta'],
@@ -218,11 +495,58 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'mastodon', 'x'],
+    anlass_keys: ['meinung'],
+    strategy: {
+      ziel: 'Glaubwürdigkeit aufbauen: deine ehrliche Erfahrung wird zum Beweis, dass man dir trauen kann.',
+      warum: [
+        'Zweiseitige Bewertungen (Stärken UND Schwächen) wirken messbar glaubwürdiger als reines Lob.',
+        'Das „geeignet für / nicht geeignet für"-Fazit liefert echte Entscheidungshilfe — das wird geteilt.',
+        'Die offene Erfahrungsfrage am Ende zieht die besten Kommentare eines ganzen Monats.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Vertrauens-Signal',
+          wert: 'Two-sided Reviews schlagen reine Lobeshymnen bei Glaubwürdigkeit deutlich',
+          quelle: 'Persuasions-Forschung zu zweiseitigen Argumenten',
+        },
+      ],
+      aufwand: 'mittel',
+      frequenz: 'bei echter Test-Erfahrung',
+      voraussetzungen: ['Echte Nutzung über den Testzeitraum'],
+    },
     slots: [
-      { key: 'produkt', question: 'Was hast du getestet?', required: true },
-      { key: 'testzeitraum', question: 'Wie lange? (z. B. "30 Tage")', required: true },
-      { key: 'staerken', question: '2–3 Stärken (kommagetrennt)', required: true },
-      { key: 'schwaechen', question: 'Mindestens 1 ehrlicher Minuspunkt', required: true },
+      {
+        key: 'produkt',
+        question: 'Was hast du getestet?',
+        help: 'Produkt- oder Tool-Name — er gehört in den Hook.',
+        example: 'Notion AI',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'testzeitraum',
+        question: 'Wie lange hast du es wirklich genutzt?',
+        help: 'Der Zeitraum macht das Fazit belastbar — „30 Tage" schlägt „kurz angetestet".',
+        example: '30 Tage',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'staerken',
+        question: 'Deine 2–3 echten Stärken (kommagetrennt)',
+        help: 'Konkret mit Situation — was hat dich wirklich überzeugt?',
+        example: 'Meeting-Notizen in Sekunden, versteht deutschen Kontext',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'schwaechen',
+        question: 'Mindestens ein ehrlicher Minuspunkt',
+        help: 'Die Schwäche macht das Lob glaubwürdig — was hat dich genervt?',
+        example: 'Preis pro Sitz wird ab 3 Leuten happig',
+        kind: 'erfahrung',
+        required: true,
+      },
     ],
     prompt_hints:
       'Two-sided schreiben: Stärken UND Schwächen konkret, je mit Beispiel. Erwartung vs. Realität. ' +
@@ -247,10 +571,50 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'doku_modus',
     format: 'image_text',
     recommended_platforms: ['x', 'bluesky', 'linkedin'],
+    anlass_keys: ['neu'],
+    strategy: {
+      ziel: 'Den Neuheits-Moment nutzen: Miterleben erzeugen und eine Serie (Langzeittest) starten.',
+      warum: [
+        'Der „Geschenk-Moment" (Erwartung → Reveal) ist emotional ansteckend — Leser erleben mit.',
+        'Ein irritierender Ersteindruck neben zwei positiven macht dich zum ehrlichen Beobachter.',
+        'Die Langzeittest-Ankündigung ist ein Open Loop — ein konkreter Grund, dir zu folgen.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Engagement-Zeitfenster',
+          wert: 'Ersteindrücke performen im Neuheits-Fenster (≈ 48 h) am stärksten',
+          quelle: 'Unboxing-/First-Look-Format-Analysen 2025',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: 'bei echtem Anlass',
+      voraussetzungen: ['Foto des Produkts/Setups'],
+    },
     slots: [
-      { key: 'produkt', question: 'Was ist angekommen?', required: true },
-      { key: 'warum', question: 'Warum gekauft/bestellt? (Erwartung, Hype-Kontext)', required: true },
-      { key: 'eindruecke', question: 'Deine 3 ersten Eindrücke (kommagetrennt, gern auch ein irritierender)', required: true },
+      {
+        key: 'produkt',
+        question: 'Was ist angekommen?',
+        help: 'Das neue Ding — Name reicht, das Foto erzählt den Rest.',
+        example: 'Das reMarkable Paper Pro',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'warum',
+        question: 'Warum hast du es dir geholt? (Erwartung, Hype, Problem)',
+        help: 'Deine Motivation macht den Reveal spannend — worauf hast du gehofft?',
+        example: 'Alle schwärmen davon — ich will endlich papierlos arbeiten',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'eindruecke',
+        question: 'Deine 3 ersten Eindrücke (kommagetrennt, gern einer davon irritierend)',
+        help: 'Sensorisch und konkret — was ist dir in den ersten 10 Minuten aufgefallen?',
+        example: 'Display fühlt sich wie Papier an, Setup in 2 Minuten, der Stift quietscht leise',
+        kind: 'erfahrung',
+        required: true,
+      },
     ],
     prompt_hints:
       'Dramaturgie Erwartung → Reveal: der "Geschenk-Moment" trägt den Post, nicht das Endurteil. ' +
@@ -276,11 +640,58 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['zahl'],
+    strategy: {
+      ziel: 'Beweisen statt behaupten: dein echtes Vorher/Nachher wird zum stärksten Verkaufsargument.',
+      warum: [
+        'Der Zahlen-Kontrast im Hook stoppt den Daumen — Deltas sind unwiderstehlich konkret.',
+        'Der EINE Hebel (statt zehn Tipps) macht die Geschichte glaubwürdig und nachmachbar.',
+        'Demut („der Weg war holprig") schlägt Prahlerei — Überidealisierung zerstört alles.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Engagement',
+          wert: 'Vorher/Nachher mit Delta im Hook gehört zu den stärksten Engagement-Formaten',
+          quelle: 'BAB-/Copywriting-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'mittel',
+      frequenz: 'bei echtem Meilenstein',
+      voraussetzungen: ['Echte Vorher-/Nachher-Zahlen', 'Beweis-Screenshot'],
+    },
     slots: [
-      { key: 'vorher', question: 'Vorher-Zustand als Zahl', required: true },
-      { key: 'nachher', question: 'Nachher-Zustand als Zahl', required: true },
-      { key: 'zeitraum', question: 'In welchem Zeitraum?', required: true },
-      { key: 'hebel', question: 'Der EINE Hebel, der es ausgemacht hat', required: true },
+      {
+        key: 'vorher',
+        question: 'Dein Vorher-Zustand als echte Zahl',
+        help: 'Die Ausgangslage — je schmerzhafter konkret, desto stärker der Kontrast.',
+        example: '6 Std/Woche für Social Media, 200 Follower',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'nachher',
+        question: 'Dein Nachher-Zustand als echte Zahl',
+        help: 'Nicht überidealisieren — die ehrliche Zahl ist die glaubwürdige.',
+        example: '40 Min/Woche, 1.800 Follower',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'zeitraum',
+        question: 'In welchem Zeitraum ist das passiert?',
+        help: 'Der ehrliche Zeitrahmen — „6 Monate" schlägt ein unglaubwürdiges „2 Wochen".',
+        example: '6 Monate',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'hebel',
+        question: 'Was war der EINE Hebel, der es ausgemacht hat?',
+        help: 'Deine echte Erkenntnis — die Brücke zwischen Vorher und Nachher.',
+        example: 'Feste Posting-Routine statt Inspiration abwarten',
+        kind: 'erfahrung',
+        required: true,
+      },
     ],
     prompt_hints:
       'BAB-Logik: Before konkret schmerzhaft, After attraktiv aber NICHT überidealisiert ' +
@@ -308,10 +719,49 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'doku_modus',
     format: 'text',
     recommended_platforms: ['x', 'mastodon', 'bluesky'],
+    anlass_keys: ['wip'],
+    strategy: {
+      ziel: 'Nahbarkeit aufbauen: dein ehrlicher Fail erzeugt die Verbindung, die kein Erfolgs-Post schafft.',
+      warum: [
+        'Verletzlichkeit löst Reziprozität aus — Leser teilen ihre eigenen Fails zurück.',
+        'Das Learning ist der Wert des Posts — du gibst etwas, statt nur zu beichten.',
+        'Kein CTA nötig: Ungefiltertes wirkt, gerade WEIL es nichts will.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Kommentar-Tiefe',
+          wert: 'Fail-Posts erzeugen die persönlichsten Kommentare (Reziprozitäts-Effekt)',
+          quelle: 'Build-in-public-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: 'wenn es passiert — Echtheit schlägt Redaktionsplan',
+    },
     slots: [
-      { key: 'was_passiert', question: 'Was ist schiefgegangen? (ungefiltert)', required: true },
-      { key: 'ursache', question: 'Woran lag es?', required: true },
-      { key: 'learning', question: 'Was ist das Learning / der Fix?', required: true },
+      {
+        key: 'was_passiert',
+        question: 'Was ist schiefgegangen? (ungefiltert)',
+        help: 'Der Fail, wie du ihn einem Freund erzählen würdest — sprich ihn einfach ein.',
+        example: 'Migration ohne Backup gefahren — 2 Stunden Daten weg',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'ursache',
+        question: 'Woran lag es wirklich?',
+        help: 'Die ehrliche Ursache — meist unbequemer als die technische.',
+        example: 'Ich wollte vor dem Termin noch schnell fertig werden',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'learning',
+        question: 'Dein Learning oder Fix daraus?',
+        help: 'Der Wert für die Leser — was machst du ab jetzt anders?',
+        example: 'Backup-Check ist jetzt Teil des Deploy-Skripts',
+        kind: 'erfahrung',
+        required: true,
+      },
     ],
     prompt_hints:
       'Dokumentations-Ton, kein Marketing-Satzbau. Das Learning ist der Wert, nicht der Erfolg. ' +
@@ -336,10 +786,49 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'doku_modus',
     format: 'image_text',
     recommended_platforms: ['x', 'bluesky', 'mastodon'],
+    anlass_keys: ['wip'],
+    strategy: {
+      ziel: 'Einen Follow-Grund schaffen: die nummerierte Serie macht aus Zuschauern Stammleser.',
+      warum: [
+        'Serien („Tag 12 von …") erzeugen Fortsetzungs-Spannung — man will wissen, wie es weitergeht.',
+        'Kleine echte Zahlen (auch peinliche) sind die Währung von Build-in-public.',
+        'Der offene nächste Schritt am Ende ist ein Open Loop — Grund, morgen wiederzukommen.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Follower-Wachstum',
+          wert: 'Konstante Serien schlagen sporadische Einzel-Posts beim Wachstum deutlich',
+          quelle: 'Build-in-public-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: '3–5× pro Woche (Serie)',
+    },
     slots: [
-      { key: 'gebaut', question: 'Was hast du heute gebaut/gelernt?', required: true },
-      { key: 'detail', question: 'Das eine interessante Detail', required: true },
-      { key: 'serie', question: 'Serien-Nummer (z. B. "Woche 12", optional)', required: false },
+      {
+        key: 'gebaut',
+        question: 'Was hast du heute gebaut oder gelernt?',
+        help: 'Der Tages-Fortschritt in einem Satz — klein ist völlig okay.',
+        example: 'Den Template-Wizard fertig gebaut',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'detail',
+        question: 'Das eine Detail, das dich heute überrascht hat?',
+        help: 'Die Beobachtung, die nur du machen konntest — sie macht den Post einzigartig.',
+        example: 'Die Hälfte der Nutzer klickt zuerst auf den teuersten Plan',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'serie',
+        question: 'Deine Serien-Nummer?',
+        help: 'Die laufende Nummer deiner Serie — sie erzeugt den Follow-Grund.',
+        example: 'Woche 12',
+        kind: 'fact',
+        required: false,
+      },
     ],
     prompt_hints:
       'Klein und konkret: 3–5 Sätze. Fünf Transparenz-Ebenen als Repertoire (Fortschritt, Metriken, ' +
@@ -365,13 +854,55 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['nichts'],
+    strategy: {
+      ziel: 'Nahbar bleiben und dein Produkt beiläufig platzieren — ohne dass es nach Werbung riecht.',
+      warum: [
+        'Setup-Posts bedienen echte Neugier — „womit arbeiten andere?" wird immer geklickt.',
+        'Die beiläufige Erwähnung (nie im Hook, nie mit Features) umgeht die Werbe-Abwehr komplett.',
+        'Die weiche Frage am Ende („Was ist in eurem Stack?") lädt zum leichtesten Kommentar ein.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Produkt-Erwähnung ohne Reaktanz',
+          wert: 'Beiläufige Einbettung umgeht Werbe-Abwehr — Wirkung indirekt, nicht messbar in Klicks',
+          quelle: 'Product-Placement-Forschung (qualitativ)',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: 'max. 1× pro Monat pro Produkt',
+    },
     slots: [
-      { key: 'rolle', question: 'Deine Rolle (z. B. "Solo-Founder")', required: true },
-      { key: 'tools', question: '3–5 Tools/Dinge deines Alltags (kommagetrennt)', required: true },
-      { key: 'detail', question: 'Ein ehrliches Alltagsdetail (z. B. "zwischen zwei Calls")', required: true },
+      {
+        key: 'rolle',
+        question: 'Deine Rolle, aus der du erzählst?',
+        help: 'Der Blickwinkel des Posts — Leser vergleichen sich mit dieser Rolle.',
+        example: 'Solo-Founder',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'tools',
+        question: '3–5 Tools oder Dinge deines echten Alltags (kommagetrennt)',
+        help: 'Dein wirklicher Stack — erfundene Setups fliegen in den Kommentaren auf.',
+        example: 'Notion, Raycast, Prolora, ein Timer aus Holz',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'detail',
+        question: 'Ein ehrliches Alltagsdetail dazu?',
+        help: 'Die kleine Unperfektheit macht den Post menschlich.',
+        example: 'Der zweite Kaffee entscheidet, ob es ein guter Tag wird',
+        kind: 'erfahrung',
+        required: true,
+      },
       {
         key: 'produkt',
         question: 'Dein eigenes Produkt (wird nur beiläufig erwähnt)',
+        help: 'Taucht als EIN Tool unter mehreren auf — nie als Held der Geschichte.',
+        example: 'Prolora',
+        kind: 'angle',
         required: false,
         prefill_from: 'product_description',
       },
@@ -398,11 +929,62 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'image_text',
     recommended_platforms: ['linkedin', 'x'],
+    anlass_keys: ['community'],
+    strategy: {
+      ziel: 'Beitritts-Anfragen auslösen: der Erfolg eines Mitglieds beweist, was drinnen möglich ist.',
+      warum: [
+        'Fremder Erfolg ist der stärkste Beweis — glaubwürdiger als jedes Eigenlob.',
+        'Die sichtbare Mechanik (Post → Feedback → Umsetzung) zeigt, wie die Community arbeitet.',
+        'Das Trigger-Wort senkt die Beitritts-Hürde auf einen einzigen Kommentar.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Kommentare (Comment-Trigger)',
+          wert: '≈ 2–5× vs. Link-Post',
+          quelle: 'Comment-to-DM-Funnel-Fallstudien 2025',
+        },
+      ],
+      aufwand: 'mittel',
+      frequenz: '1× pro Woche',
+      voraussetzungen: [
+        'Eigene Community (Skool, Discord, Gruppe)',
+        'Einwilligung des Mitglieds (DSGVO)',
+        'DMs manuell beantworten (keine Automation)',
+      ],
+    },
     slots: [
-      { key: 'mitglied', question: 'Wer hat was erreicht? (Vorname + Ergebnis)', required: true },
-      { key: 'zeitraum', question: 'Nach welcher Zeit in der Community?', required: true },
-      { key: 'community', question: 'Wie heißt die Community?', required: true },
-      { key: 'triggerwort', question: 'Trigger-Wort für den Zutritt (Default: LIVE)', required: false },
+      {
+        key: 'mitglied',
+        question: 'Wer hat was erreicht? (Vorname + das Ergebnis)',
+        help: 'Der echte Erfolg eines echten Mitglieds — mit dessen Einwilligung.',
+        example: 'Lena — erste Automation für 500 € verkauft',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'zeitraum',
+        question: 'Wie lange war das Mitglied dabei, bis das Ergebnis da war?',
+        help: 'Macht den Erfolg zeitlich greifbar und glaubwürdig.',
+        example: '3 Wochen nach dem Start',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'community',
+        question: 'Wie heißt deine Community, deren Erfolg du zeigst?',
+        help: 'Wird im Post genannt, damit Leser sie finden können.',
+        example: 'Automation Circle',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'triggerwort',
+        question: 'Dein Trigger-Wort für den Zutritt?',
+        help: 'Das Wort, das Interessenten kommentieren — kurz und großschreibbar.',
+        example: 'LIVE',
+        kind: 'angle',
+        required: false,
+      },
     ],
     prompt_hints:
       'Den Erfolg des MITGLIEDS feiern, nicht den eigenen. Die Mechanik sichtbar machen: ' +
@@ -431,10 +1013,50 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
     style_preset: 'neutral',
     format: 'poll',
     recommended_platforms: ['x', 'mastodon', 'linkedin'],
+    anlass_keys: ['frage'],
+    strategy: {
+      ziel: 'Deine Leser zu Mitgestaltern machen — und nebenbei erfahren, was sie wirklich wollen.',
+      warum: [
+        'Abstimmen ist die niedrigste Beteiligungs-Hürde überhaupt — ein Tap, kein Text.',
+        'Wer mitentscheidet, fühlt sich dem Ergebnis verbunden (Ikea-Effekt) und kommt wieder.',
+        'Das Ergebnis-Versprechen („Ich teile, was gewinnt") ist ein Open Loop für den Folge-Post.',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Reichweite',
+          wert: 'Umfragen erhalten überdurchschnittliche Impressions bei minimalem Aufwand',
+          quelle: 'X/LinkedIn-Poll-Format-Daten 2025',
+        },
+      ],
+      aufwand: 'niedrig',
+      frequenz: '1–2× pro Monat',
+      voraussetzungen: ['Eine echte offene Entscheidung (kein Alibi-Poll)'],
+    },
     slots: [
-      { key: 'vorhaben', question: 'Woran arbeitest du gerade?', required: true },
-      { key: 'optionen', question: '2–4 Optionen (kommagetrennt, eine davon gern polarisierend)', required: true },
-      { key: 'termin', question: 'Wann teilst du das Ergebnis? (optional)', required: false },
+      {
+        key: 'vorhaben',
+        question: 'Woran arbeitest du gerade — und wo stehst du wirklich vor einer Wahl?',
+        help: 'Der ehrliche Kontext macht aus der Umfrage eine Geschichte.',
+        example: 'Ich baue eine Vorlagen-Bibliothek und weiß nicht, welches Format zuerst',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'optionen',
+        question: 'Deine 2–4 Optionen (kommagetrennt, eine darf polarisieren)',
+        help: 'Klar unterscheidbare Alternativen — die polarisierende zieht die Kommentare.',
+        example: 'LinkedIn-Karussells, X-Threads, Telegram-Langform',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'termin',
+        question: 'Wann teilst du das Ergebnis?',
+        help: 'Der konkrete Termin macht dein Versprechen verbindlich (Open Loop).',
+        example: 'Freitag, 18 Uhr',
+        kind: 'fact',
+        required: false,
+      },
     ],
     prompt_hints:
       'Nur echte, offene Entscheidungen — Alibi-Polls werden als Engagement-Bait erkannt. ' +

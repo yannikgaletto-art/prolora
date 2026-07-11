@@ -77,6 +77,12 @@ export const feedbackStatusSchema = z.object({
   status: z.enum(['new', 'reviewed', 'planned', 'in_progress', 'shipped']),
 });
 
+// Kein workspace_id im Body: der Workspace kommt IMMER aus der Auth-Session
+// (getWorkspaceId) — ein Body-Feld würde nur Verwirrung über die Quelle stiften.
+export const templatePrefillSchema = z.object({
+  template_id: z.string().min(1).max(100),
+});
+
 export const templateDraftSchema = z.object({
   template_id: z.string().min(1).max(100),
   slots: z.record(z.string(), z.string().max(500)),
