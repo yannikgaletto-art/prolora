@@ -12,12 +12,19 @@ import { Input } from '@/app/components/Input';
 import { EmptyState } from '@/app/components/EmptyState';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
+import {
+  startOAuthConnect,
+  normalizeInstanceInput,
+  connectErrorHint,
+  type OAuthPlatform,
+} from '@/app/lib/connect';
 import type { ConnectionListItem } from '@/lib/connections/list-connections';
 
-// Platforms that authenticate via a full-page OAuth redirect (GET
-// /api/auth/{platform}). Mastodon is in this group too, but its route
-// additionally requires a ?instance= query param, so it gets its own step.
-const REDIRECT_PLATFORMS: PlatformType[] = ['linkedin', 'x'];
+// Platforms that authenticate via an OAuth consent screen. GOAL-RUN6 Phase 0:
+// the initiate step is a fetchApi JSON round-trip (startOAuthConnect) so
+// pre-consent errors render inline; only the consent hop itself navigates.
+// Mastodon is OAuth too, but needs an instance first, so it gets its own step.
+const OAUTH_REDIRECT_PLATFORMS: PlatformType[] = ['linkedin', 'x'];
 
 const PLATFORM_META: Record<PlatformType, { label: string; initial: string; color: string }> = {
   linkedin: { label: 'LinkedIn', initial: 'in', color: '#0A66C2' },
@@ -74,35 +81,23 @@ function PlatformBadge({ platform, size = 10 }: { platform: PlatformType; size?:
 function PickerRow({
   platform,
   onSelect,
+  pending,
 }: {
   platform: PlatformType;
   onSelect: (platform: PlatformType) => void;
+  pending: boolean;
 }) {
   const meta = PLATFORM_META[platform];
-  const isRedirect = REDIRECT_PLATFORMS.includes(platform);
-
-  const content = (
-    <>
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5 text-left hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
+      onClick={() => onSelect(platform)}
+      disabled={pending}
+    >
       <PlatformBadge platform={platform} size={9} />
       <span className="text-sm font-medium text-gray-900">{meta.label}</span>
-    </>
-  );
-  const className =
-    'flex w-full items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5 text-left hover:bg-gray-50';
-
-  if (isRedirect) {
-    // Plain link -> full navigation -> GET /api/auth/{platform} redirects
-    // to the platform's OAuth consent screen. No fetch, no JS in the way.
-    return (
-      <a href={`/api/auth/${platform}`} className={className}>
-        {content}
-      </a>
-    );
-  }
-
-  return (
-    <button type="button" className={className} onClick={() => onSelect(platform)}>
-      {content}
+      {pending && <span className="ml-auto text-xs text-gray-400">Opening…</span>}
     </button>
   );
 }
@@ -112,7 +107,12 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerError, setPickerError] = useState<{ message: string; hint: string | null } | null>(null);
+  const [oauthPending, setOauthPending] = useState<OAuthPlatform | null>(null);
   const [mastodonOpen, setMastodonOpen] = useState(false);
+  const [mastodonInstance, setMastodonInstance] = useState('');
+  const [mastodonError, setMastodonError] = useState<{ message: string; hint: string | null } | null>(null);
+  const [mastodonSubmitting, setMastodonSubmitting] = useState(false);
   const [credentialModal, setCredentialModal] = useState<'bluesky' | 'telegram' | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionListItem | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -131,9 +131,53 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
   const [telegramError, setTelegramError] = useState<string | null>(null);
 
   function openConnect(platform: PlatformType) {
+    if (OAUTH_REDIRECT_PLATFORMS.includes(platform)) {
+      // Stay in the picker: on success the browser navigates to the consent
+      // screen; on failure the error renders right here instead of a JSON page.
+      void handleOAuthConnect(platform as OAuthPlatform);
+      return;
+    }
     setPickerOpen(false);
-    if (platform === 'mastodon') setMastodonOpen(true);
-    else if (platform === 'bluesky' || platform === 'telegram') setCredentialModal(platform);
+    setPickerError(null);
+    if (platform === 'mastodon') {
+      setMastodonInstance('');
+      setMastodonError(null);
+      setMastodonOpen(true);
+    } else if (platform === 'bluesky' || platform === 'telegram') {
+      setCredentialModal(platform);
+    }
+  }
+
+  async function handleOAuthConnect(platform: OAuthPlatform) {
+    setOauthPending(platform);
+    setPickerError(null);
+    try {
+      await startOAuthConnect(platform);
+      // No cleanup: window.location.assign is already navigating away.
+    } catch (error) {
+      setPickerError({ message: errorMessage(error), hint: connectErrorHint(error) });
+      setOauthPending(null);
+    }
+  }
+
+  async function handleMastodonSubmit(event: FormEvent) {
+    event.preventDefault();
+    const instance = normalizeInstanceInput(mastodonInstance);
+    if (!instance) {
+      setMastodonError({
+        message: 'That does not look like a Mastodon server.',
+        hint: 'Enter just the domain of your server, e.g. mastodon.social',
+      });
+      return;
+    }
+    setMastodonSubmitting(true);
+    setMastodonError(null);
+    try {
+      await startOAuthConnect('mastodon', { instance });
+    } catch (error) {
+      setMastodonError({ message: errorMessage(error), hint: connectErrorHint(error) });
+      setMastodonSubmitting(false);
+    }
   }
 
   function closeBlueskyModal() {
@@ -279,13 +323,23 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
                     >
                       Disconnect
                     </Button>
-                  ) : REDIRECT_PLATFORMS.includes(connection.platform) ? (
-                    <a
-                      href={`/api/auth/${connection.platform}`}
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-700"
+                  ) : OAUTH_REDIRECT_PLATFORMS.includes(connection.platform) ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={oauthPending === connection.platform}
+                      onClick={async () => {
+                        try {
+                          setOauthPending(connection.platform as OAuthPlatform);
+                          await startOAuthConnect(connection.platform as OAuthPlatform);
+                        } catch (error) {
+                          setToast({ variant: 'error', message: errorMessage(error) });
+                          setOauthPending(null);
+                        }
+                      }}
                     >
                       Reconnect
-                    </a>
+                    </Button>
                   ) : (
                     <Button variant="primary" size="sm" onClick={() => openConnect(connection.platform)}>
                       Reconnect
@@ -301,41 +355,69 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
       {/* Platform picker */}
       <Modal
         open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
+        onClose={() => {
+          setPickerOpen(false);
+          setPickerError(null);
+        }}
         title="Connect a new account"
         description="Choose a platform to connect to this workspace."
       >
         <div className="space-y-2">
           {ALL_PLATFORMS.map((platform) => (
-            <PickerRow key={platform} platform={platform} onSelect={openConnect} />
+            <PickerRow
+              key={platform}
+              platform={platform}
+              onSelect={openConnect}
+              pending={oauthPending === platform}
+            />
           ))}
         </div>
+        {pickerError && (
+          <div className="mt-3 rounded-md bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-600">{pickerError.message}</p>
+            {pickerError.hint && <p className="mt-1 text-xs text-red-500">{pickerError.hint}</p>}
+          </div>
+        )}
       </Modal>
 
-      {/* Mastodon: needs an instance domain before the OAuth redirect can be built. */}
+      {/* Mastodon: needs an instance domain before the OAuth redirect can be built.
+          The instance is validated client-side, then startOAuthConnect fetches the
+          consent URL — server errors (invalid_instance, platform_unreachable)
+          render inline here instead of as a raw JSON page. */}
       <Modal
         open={mastodonOpen}
         onClose={() => setMastodonOpen(false)}
         title="Connect Mastodon"
         description="Enter your Mastodon instance to continue to sign-in."
       >
-        {/* Plain GET form -> full navigation to /api/auth/mastodon?instance=...
-            which redirects to the instance's OAuth consent screen. Same
-            "full navigation" flow as the LinkedIn/X links, just parameterized
-            because this route requires ?instance=. */}
-        <form method="GET" action="/api/auth/mastodon" className="space-y-4">
+        <form onSubmit={handleMastodonSubmit} className="space-y-4">
           <Input
             label="Instance"
             name="instance"
             placeholder="mastodon.social"
+            value={mastodonInstance}
+            onChange={(event) => setMastodonInstance(event.target.value)}
             required
             hint="The domain of your Mastodon server."
           />
+          {mastodonError && (
+            <div className="rounded-md bg-red-50 px-3 py-2">
+              <p className="text-sm text-red-600">{mastodonError.message}</p>
+              {mastodonError.hint && <p className="mt-1 text-xs text-red-500">{mastodonError.hint}</p>}
+            </div>
+          )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setMastodonOpen(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setMastodonOpen(false)}
+              disabled={mastodonSubmitting}
+            >
               Cancel
             </Button>
-            <Button type="submit">Continue</Button>
+            <Button type="submit" loading={mastodonSubmitting}>
+              Continue
+            </Button>
           </div>
         </form>
       </Modal>

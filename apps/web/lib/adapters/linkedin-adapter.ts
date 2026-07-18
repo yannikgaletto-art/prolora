@@ -6,7 +6,9 @@ import type {
 } from './types';
 
 const API = 'https://api.linkedin.com';
-const LINKEDIN_VERSION = '202405';
+// LinkedIn rejects sunset Marketing API versions. Keep this aligned with the
+// newest supported monthly version from LinkedIn's versioning documentation.
+const LINKEDIN_VERSION = '202606';
 
 export class LinkedInAdapter extends BaseAdapter {
   readonly platform = 'linkedin' as const;

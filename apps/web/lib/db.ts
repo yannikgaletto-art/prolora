@@ -58,8 +58,12 @@ export interface PostGroupRow {
   original_content: string;
   media: MediaRef[];
   scheduled_at: string | null;
+  /** IANA zone the schedule was authored in (007) — display stays stable across DST/viewers. */
+  scheduled_tz: string | null;
   adapt_content: boolean;
   first_comment: string | null;
+  /** Pillar this group was splintered from (008), if any. */
+  content_source_id: string | null;
   created_at: string;
   created_via: 'api' | 'mcp' | 'dashboard';
 }
@@ -79,7 +83,9 @@ export interface PostItemRow {
   connection_id: string;
   platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram';
   adapted_content: string | null;
-  status: 'queued' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'deleted';
+  resolved_content: string | null;
+  media: MediaRef[];
+  status: 'draft' | 'queued' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'deleted';
   platform_post_id: string | null;
   platform_url: string | null;
   published_at: string | null;
@@ -280,4 +286,51 @@ export interface ChangelogEntryRow {
   related_board_items: string[] | null;
   published_at: string | null;
   created_at: string;
+}
+
+// --- GOAL-RUN6: Splinter engine + AI media generation (migration 008) ---
+
+export interface ContentSourceRow {
+  id: string;
+  workspace_id: string;
+  kind: 'paste' | 'url' | 'editor';
+  title: string | null;
+  body_md: string;
+  source_url: string | null;
+  /** SplinterSuggestion[] from @prolora/shared, stored as JSONB. */
+  splinters: unknown[];
+  splintered_at: string | null;
+  status: 'new' | 'splintered' | 'archived';
+  created_at: string;
+}
+
+export interface MediaGenerationRow {
+  id: string;
+  workspace_id: string;
+  kind: 'image' | 'video';
+  prompt: string;
+  format: 'square' | 'portrait' | 'landscape';
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  provider: string;
+  model: string;
+  provider_job_id: string | null;
+  storage_key: string | null;
+  mime_type: string | null;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface MediaBudgetLedgerRow {
+  id: string;
+  workspace_id: string;
+  generation_id: string;
+  month: string;
+  estimated_eur: number;
+  final_eur: number | null;
+  state: 'reserved' | 'committed' | 'released';
+  provider: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
 }

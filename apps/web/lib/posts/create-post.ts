@@ -12,6 +12,7 @@ import { validateForPlatform, validateScheduledAt } from '@/lib/validation/pipel
 import { getPlatformRules } from '@/lib/validation/platform-rules';
 import { inngest } from '@/lib/inngest/client';
 import { ApiError } from '@/lib/api/http';
+import { resolveConnectionPayload } from './resolve-payload';
 
 export interface CreatePostResult {
   response: CreatePostResponse;
@@ -26,10 +27,15 @@ export interface CreatePostResult {
 export async function createPost(
   workspaceId: string,
   request: CreatePostRequest,
-  createdVia: 'api' | 'mcp' | 'dashboard' = 'api'
+  createdVia: 'api' | 'mcp' | 'dashboard' = 'api',
+  options: { contentSourceId?: string } = {}
 ): Promise<CreatePostResult> {
   const db = getServiceDb();
   const warnings: string[] = [];
+  // Drafts (GOAL-RUN6): persist without publishing. Validation problems are
+  // demoted to warnings (the user will edit before scheduling), the monthly
+  // post quota applies when the draft is converted, never on save.
+  const isDraft = request.draft === true;
 
   // platform_overrides.media has no durable home yet (post_items carries
   // only adapted_content) — reject instead of silently dropping it.
@@ -52,8 +58,11 @@ export async function createPost(
   // Resolve connections — MUST belong to this workspace (Invariante 2).
   const connections = await loadConnections(workspaceId, request.platforms);
 
-  // Monthly post quota (per plan) — checked BEFORE any write.
-  await assertPostQuota(workspaceId, connections.length);
+  // Monthly post quota (per plan) — checked BEFORE any write. Drafts are
+  // exempt; the schedule endpoint re-checks when a draft turns publishable.
+  if (!isDraft) {
+    await assertPostQuota(workspaceId, connections.length);
+  }
 
   // Media: external URLs -> private storage, keys only (Invariante 6).
   const mediaRefs = request.media?.length ? await ingestMedia(workspaceId, request.media) : [];
@@ -77,19 +86,34 @@ export async function createPost(
 
   // Per-platform overrides beat adaptation, adaptation beats the original.
   const finalContent = (c: ConnectionRow): string =>
-    request.platform_overrides?.[c.platform]?.content ??
-    contentByConnection.get(c.id) ??
-    request.content;
+    resolveConnectionPayload({
+      connectionId: c.id,
+      content:
+        request.platform_overrides?.[c.platform]?.content ??
+        contentByConnection.get(c.id) ??
+        request.content,
+      media: request.media ?? [],
+      connectionOverrides: request.connection_overrides,
+    }).content;
+
+  const mediaByConnection = new Map<string, MediaRef[]>();
+  for (const connection of connections) {
+    const override = request.connection_overrides?.[connection.id];
+    mediaByConnection.set(
+      connection.id,
+      override?.media ? await ingestMedia(workspaceId, override.media) : mediaRefs
+    );
+  }
 
   // Smart validation per platform — errors abort with 400 + details.
   const validationErrors: string[] = [];
-  const mediaItems: MediaItem[] = mediaRefs.map((ref) => ({
-    type: ref.type,
-    url: ref.storage_key,
-    alt_text: ref.alt_text,
-    mime_type: ref.mime_type,
-  }));
   for (const connection of connections) {
+    const mediaItems: MediaItem[] = (mediaByConnection.get(connection.id) ?? []).map((ref) => ({
+      type: ref.type,
+      url: ref.storage_key,
+      alt_text: ref.alt_text,
+      mime_type: ref.mime_type,
+    }));
     const result = validateForPlatform({
       connection,
       content: finalContent(connection),
@@ -99,7 +123,13 @@ export async function createPost(
     warnings.push(...result.warnings.map((w) => `[${connection.platform}] ${w}`));
   }
   if (validationErrors.length > 0) {
-    throw new ApiError(400, validationErrors.join('; '), 'validation_failed');
+    if (isDraft) {
+      // A draft must be savable even when it would not publish as-is — the
+      // problems surface as warnings and again (as errors) at schedule time.
+      warnings.push(...validationErrors.map((e) => `[draft] ${e}`));
+    } else {
+      throw new ApiError(400, validationErrors.join('; '), 'validation_failed');
+    }
   }
 
   // Durable write: post_group -> post_items -> read-back verify.
@@ -111,8 +141,10 @@ export async function createPost(
       original_content: request.content,
       media: mediaRefs,
       scheduled_at: request.scheduled_at ?? null,
+      scheduled_tz: request.scheduled_tz ?? null,
       adapt_content: request.adapt_content ?? false,
       first_comment: request.first_comment ?? null,
+      content_source_id: options.contentSourceId ?? null,
       created_via: createdVia,
     })
     .select('id')
@@ -126,7 +158,9 @@ export async function createPost(
     connection_id: c.id,
     platform: c.platform,
     adapted_content: finalContent(c) === request.content ? null : finalContent(c),
-    status: isScheduled ? 'scheduled' : 'queued',
+    resolved_content: finalContent(c),
+    media: mediaByConnection.get(c.id) ?? mediaRefs,
+    status: isDraft ? 'draft' : isScheduled ? 'scheduled' : 'queued',
   }));
   const { error: itemsError } = await db.from('post_items').insert(itemsPayload);
   if (itemsError) {
@@ -157,8 +191,9 @@ export async function createPost(
   }
 
   // Immediate posts: fan out publish events now. Scheduled posts are picked
-  // up by the publish-scheduled cron when due.
-  if (!isScheduled) {
+  // up by the publish-scheduled cron when due. Drafts NEVER emit events —
+  // the sweep only selects status='scheduled', so a draft cannot publish.
+  if (!isScheduled && !isDraft) {
     await inngest.send(
       items.map((item) => ({
         name: 'post/publish' as const,
@@ -212,7 +247,8 @@ async function loadConnections(
   return found;
 }
 
-async function assertPostQuota(workspaceId: string, newPosts: number): Promise<void> {
+// Exported: the schedule endpoint re-checks quota when drafts turn publishable.
+export async function assertPostQuota(workspaceId: string, newPosts: number): Promise<void> {
   const db = getServiceDb();
   const { data: workspace, error } = await db
     .from('workspaces')

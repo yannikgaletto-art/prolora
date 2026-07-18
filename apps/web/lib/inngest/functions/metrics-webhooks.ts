@@ -13,7 +13,7 @@ export const collectMetrics = inngest.createFunction(
   {
     id: 'collect-metrics',
     retries: 2,
-    concurrency: [{ limit: 10 }],
+    concurrency: [{ limit: 5 }],
   },
   { event: 'metrics/collect' },
   async ({ event, step }) => {

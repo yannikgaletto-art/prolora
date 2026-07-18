@@ -1,10 +1,12 @@
 import Link from 'next/link';
 
-// Plain Server Component: two links, active tab passed in by each page. No
+// Plain Server Component: static links, active tab passed in by each page. No
 // client-side state needed for a static sub-nav.
-export function PublishTabs({ active }: { active: 'compose' | 'posts' }) {
+export function PublishTabs({ active }: { active: 'compose' | 'calendar' | 'hub' | 'posts' }) {
   const tabs = [
     { key: 'compose' as const, label: 'Compose', href: '/publish' },
+    { key: 'calendar' as const, label: 'Calendar', href: '/publish/calendar' },
+    { key: 'hub' as const, label: 'Content Hub', href: '/publish/hub' },
     { key: 'posts' as const, label: 'Posts', href: '/publish/posts' },
   ];
 

@@ -7,7 +7,8 @@ import type { CtaMechanic, PlatformType, PostTemplate, PsychLevel, StylePreset }
 import type { WorkspaceContextRow } from '@/lib/db';
 import { getPlatformRules } from '@/lib/validation/platform-rules';
 
-const STYLE_PRESET_RULES: Record<StylePreset, string> = {
+// Exported for the splinter engine (GOAL-RUN6) — one source of truth.
+export const STYLE_PRESET_RULES: Record<StylePreset, string> = {
   neutral: 'No style overlay — follow the workspace voice tone.',
   hormozi_carousel:
     'Playbook carousel style: slide 1 = bold claim (max 8 words), slide 2 = proof (number/reference — ' +
@@ -36,7 +37,8 @@ const PSYCH_LEVEL_RULES: Record<PsychLevel, string> = {
 
 // Condensed platform nuance blocks from GOAL-RUN4 Appendix A.5, including the
 // per-platform intensity dial (hook hardness, FOMO, CTA pressure).
-const PLATFORM_NOTES: Record<PlatformType, string> = {
+// Exported for the splinter engine (GOAL-RUN6) — one source of truth.
+export const PLATFORM_NOTES: Record<PlatformType, string> = {
   linkedin:
     'LinkedIn (intensity: full): the first 2-3 lines sit above the "...more" fold and must carry the ' +
     'post — dwell time is the core metric. Short paragraphs. 3-5 topical hashtags at the end. External ' +

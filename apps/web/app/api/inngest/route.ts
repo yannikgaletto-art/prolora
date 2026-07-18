@@ -21,6 +21,7 @@ import {
   scheduledCommunityHealth,
   opportunityExpiry,
   optimalTiming,
+  generateMedia,
 } from '@/lib/inngest/functions';
 
 export const { GET, POST, PUT } = serve({
@@ -46,5 +47,6 @@ export const { GET, POST, PUT } = serve({
     scheduledCommunityHealth,
     opportunityExpiry,
     optimalTiming,
+    generateMedia,
   ],
 });

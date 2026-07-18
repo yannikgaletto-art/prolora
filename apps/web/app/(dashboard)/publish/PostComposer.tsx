@@ -13,6 +13,7 @@ import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { ConnectionWithLimit } from '@/lib/connections/list-connections';
 import { PLATFORM_META } from './platform-meta';
 import { takeAppliedTemplate, type AppliedTemplate } from './handoff';
+import { buildConnectionOverrides } from './composer-overrides';
 
 /** Wizard chrome strings the server page resolves via lib/i18n (GOAL-RUN5). */
 export interface ComposerWizardStrings {
@@ -45,6 +46,7 @@ export function PostComposer({
   const [scheduledAt, setScheduledAt] = useState('');
   const [showFirstComment, setShowFirstComment] = useState(false);
   const [firstComment, setFirstComment] = useState('');
+  const [contentByConnection, setContentByConnection] = useState<Record<string, string>>({});
   const [templateExtras, setTemplateExtras] = useState<AppliedTemplate['extras']>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -84,6 +86,7 @@ export function PostComposer({
     setScheduledAt('');
     setShowFirstComment(false);
     setFirstComment('');
+    setContentByConnection({});
     setTemplateExtras(null);
   }
 
@@ -152,9 +155,16 @@ export function PostComposer({
       scheduledAtIso = scheduledDate.toISOString();
     }
 
+    const connectionOverrides = buildConnectionOverrides({
+      masterContent: content,
+      selectedConnectionIds: selected,
+      contentByConnection,
+    });
     const payload: CreatePostRequest = {
       content,
       platforms: [...selected],
+      connection_overrides:
+        Object.keys(connectionOverrides).length > 0 ? connectionOverrides : undefined,
       adapt_content: adaptContent || undefined,
       scheduled_at: scheduledAtIso,
       first_comment: showFirstComment && firstComment.trim() ? firstComment.trim() : undefined,
@@ -342,6 +352,70 @@ export function PostComposer({
             />
           )}
         </Card>
+
+        {selected.size > 0 && (
+          <Card
+            title="Individualize per account"
+            description="Each selected account can use its own language, wording, and call to action. Empty variants continue to use the master copy."
+          >
+            <div className="flex flex-col gap-4">
+              {connections
+                .filter((connection) => selected.has(connection.connection_id))
+                .map((connection) => {
+                  const meta = PLATFORM_META[connection.platform];
+                  const value = contentByConnection[connection.connection_id] ?? content;
+                  const customized = Object.prototype.hasOwnProperty.call(
+                    contentByConnection,
+                    connection.connection_id
+                  );
+                  return (
+                    <div
+                      key={connection.connection_id}
+                      className="rounded-md border border-gray-200 p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {connection.account_name}
+                          </p>
+                          <p className="text-xs text-gray-500">{meta.label}</p>
+                        </div>
+                        {customized && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setContentByConnection((current) => {
+                                const next = { ...current };
+                                delete next[connection.connection_id];
+                                return next;
+                              })
+                            }
+                            className="text-xs font-medium text-primary-700 hover:text-primary-800"
+                          >
+                            Use master copy
+                          </button>
+                        )}
+                      </div>
+                      <Textarea
+                        aria-label={`${connection.account_name} content`}
+                        rows={4}
+                        value={value}
+                        onChange={(event) =>
+                          setContentByConnection((current) => ({
+                            ...current,
+                            [connection.connection_id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        {value.length} / {connection.character_limit} characters
+                      </p>
+                    </div>
+                  );
+                })}
+            </div>
+          </Card>
+        )}
 
         <Card title="Adaptation">
           <label className="flex items-start gap-3">

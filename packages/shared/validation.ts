@@ -15,7 +15,18 @@ export const createPostSchema = z.object({
       alt_text: z.string().optional(),
     })).optional(),
   })).optional(),
+  connection_overrides: z.record(z.string().uuid(), z.object({
+    content: z.string().min(1).max(10000).optional(),
+    media: z.array(z.object({
+      type: z.enum(['image', 'video', 'document']),
+      url: z.string().min(1),
+      alt_text: z.string().optional(),
+      mime_type: z.string().optional(),
+    })).max(10).optional(),
+  })).optional(),
   scheduled_at: z.string().datetime().optional(),
+  scheduled_tz: z.string().min(1).max(64).optional(),
+  draft: z.boolean().optional(),
   first_comment: z.string().max(2000).optional(),
   adapt_content: z.boolean().optional(),
   evergreen: z.boolean().optional(),

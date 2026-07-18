@@ -9,14 +9,21 @@ import { Button } from '@/app/components/Button';
 import { Modal } from '@/app/components/Modal';
 import { Input } from '@/app/components/Input';
 import { fetchApi, errorMessage } from '@/app/lib/api';
+import {
+  startOAuthConnect,
+  normalizeInstanceInput,
+  connectErrorHint,
+  type OAuthPlatform,
+} from '@/app/lib/connect';
 import type { ConnectionListItem } from '@/lib/connections/list-connections';
 
 // Trimmed re-implementation of the platform-connect patterns from F4's
 // ConnectionsView (app/(dashboard)/connections/ConnectionsView.tsx) — same
-// truthful split: LinkedIn/X/Mastodon are full-page OAuth redirects to
-// GET /api/auth/:platform, Bluesky/Telegram are credential forms posted via
+// split: LinkedIn/X/Mastodon are OAuth (GOAL-RUN6 Phase 0: initiated via a
+// fetchApi JSON round-trip so pre-consent errors render inline; only the
+// consent hop navigates), Bluesky/Telegram are credential forms posted via
 // fetchApi. No new connect flow is invented here.
-const REDIRECT_PLATFORMS: PlatformType[] = ['linkedin', 'x'];
+const OAUTH_REDIRECT_PLATFORMS: PlatformType[] = ['linkedin', 'x'];
 
 const PLATFORM_META: Record<PlatformType, { label: string; initial: string; color: string }> = {
   linkedin: { label: 'LinkedIn', initial: 'in', color: '#0A66C2' },
@@ -49,6 +56,11 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
   const connectedPlatforms = new Set(connections.map((c) => c.platform));
 
   const [mastodonOpen, setMastodonOpen] = useState(false);
+  const [mastodonInstance, setMastodonInstance] = useState('');
+  const [mastodonError, setMastodonError] = useState<{ message: string; hint: string | null } | null>(null);
+  const [mastodonSubmitting, setMastodonSubmitting] = useState(false);
+  const [oauthPending, setOauthPending] = useState<OAuthPlatform | null>(null);
+  const [oauthError, setOauthError] = useState<{ message: string; hint: string | null } | null>(null);
   const [credentialModal, setCredentialModal] = useState<'bluesky' | 'telegram' | null>(null);
 
   const [blueskyHandle, setBlueskyHandle] = useState('');
@@ -145,8 +157,49 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
   }
 
   function openConnect(platform: PlatformType) {
-    if (platform === 'mastodon') setMastodonOpen(true);
-    else if (platform === 'bluesky' || platform === 'telegram') setCredentialModal(platform);
+    if (OAUTH_REDIRECT_PLATFORMS.includes(platform)) {
+      void handleOAuthConnect(platform as OAuthPlatform);
+      return;
+    }
+    if (platform === 'mastodon') {
+      setMastodonInstance('');
+      setMastodonError(null);
+      setMastodonOpen(true);
+    } else if (platform === 'bluesky' || platform === 'telegram') {
+      setCredentialModal(platform);
+    }
+  }
+
+  async function handleOAuthConnect(platform: OAuthPlatform) {
+    setOauthPending(platform);
+    setOauthError(null);
+    try {
+      await startOAuthConnect(platform);
+      // No cleanup: the browser is already navigating to the consent screen.
+    } catch (error) {
+      setOauthError({ message: errorMessage(error), hint: connectErrorHint(error) });
+      setOauthPending(null);
+    }
+  }
+
+  async function handleMastodonSubmit(event: FormEvent) {
+    event.preventDefault();
+    const instance = normalizeInstanceInput(mastodonInstance);
+    if (!instance) {
+      setMastodonError({
+        message: 'That does not look like a Mastodon server.',
+        hint: 'Enter just the domain of your server, e.g. mastodon.social',
+      });
+      return;
+    }
+    setMastodonSubmitting(true);
+    setMastodonError(null);
+    try {
+      await startOAuthConnect('mastodon', { instance });
+    } catch (error) {
+      setMastodonError({ message: errorMessage(error), hint: connectErrorHint(error) });
+      setMastodonSubmitting(false);
+    }
   }
 
   return (
@@ -155,10 +208,12 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
         {ALL_PLATFORMS.map((platform) => {
           const meta = PLATFORM_META[platform];
           const isConnected = connectedPlatforms.has(platform);
-          const isRedirect = REDIRECT_PLATFORMS.includes(platform);
+          const isPending = oauthPending === platform;
           const rowClass =
             'flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left ' +
-            (isConnected ? 'border-green-200 bg-green-50' : 'border-gray-200 hover:bg-gray-50');
+            (isConnected
+              ? 'border-green-200 bg-green-50'
+              : 'border-gray-200 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60');
 
           const content = (
             <>
@@ -173,7 +228,9 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
               {isConnected ? (
                 <span className="shrink-0 text-xs font-semibold text-green-700">Connected</span>
               ) : (
-                <span className="shrink-0 text-xs font-medium text-primary-700">Connect</span>
+                <span className="shrink-0 text-xs font-medium text-primary-700">
+                  {isPending ? 'Opening…' : 'Connect'}
+                </span>
               )}
             </>
           );
@@ -186,21 +243,26 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
             );
           }
 
-          if (isRedirect) {
-            return (
-              <a key={platform} href={`/api/auth/${platform}`} className={rowClass}>
-                {content}
-              </a>
-            );
-          }
-
           return (
-            <button key={platform} type="button" className={rowClass} onClick={() => openConnect(platform)}>
+            <button
+              key={platform}
+              type="button"
+              className={rowClass}
+              onClick={() => openConnect(platform)}
+              disabled={isPending}
+            >
               {content}
             </button>
           );
         })}
       </div>
+
+      {oauthError && (
+        <div className="mt-3 rounded-md bg-red-50 px-3 py-2">
+          <p className="text-sm text-red-600">{oauthError.message}</p>
+          {oauthError.hint && <p className="mt-1 text-xs text-red-500">{oauthError.hint}</p>}
+        </div>
+      )}
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-xs text-gray-500">
@@ -220,26 +282,43 @@ export function ConnectStep({ connections }: { connections: ConnectionListItem[]
         )}
       </div>
 
-      {/* Mastodon: needs an instance domain before the OAuth redirect can be built. */}
+      {/* Mastodon: needs an instance domain before the OAuth redirect can be built.
+          Validated client-side, then startOAuthConnect fetches the consent URL —
+          server errors render inline here instead of as a raw JSON page. */}
       <Modal
         open={mastodonOpen}
         onClose={() => setMastodonOpen(false)}
         title="Connect Mastodon"
         description="Enter your Mastodon instance to continue to sign-in."
       >
-        <form method="GET" action="/api/auth/mastodon" className="space-y-4">
+        <form onSubmit={handleMastodonSubmit} className="space-y-4">
           <Input
             label="Instance"
             name="instance"
             placeholder="mastodon.social"
+            value={mastodonInstance}
+            onChange={(event) => setMastodonInstance(event.target.value)}
             required
             hint="The domain of your Mastodon server."
           />
+          {mastodonError && (
+            <div className="rounded-md bg-red-50 px-3 py-2">
+              <p className="text-sm text-red-600">{mastodonError.message}</p>
+              {mastodonError.hint && <p className="mt-1 text-xs text-red-500">{mastodonError.hint}</p>}
+            </div>
+          )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setMastodonOpen(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setMastodonOpen(false)}
+              disabled={mastodonSubmitting}
+            >
               Cancel
             </Button>
-            <Button type="submit">Continue</Button>
+            <Button type="submit" loading={mastodonSubmitting}>
+              Continue
+            </Button>
           </div>
         </form>
       </Modal>

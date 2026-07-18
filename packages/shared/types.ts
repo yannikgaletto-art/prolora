@@ -17,7 +17,14 @@ export type AccountType = 'personal' | 'business' | 'creator' | 'page' | 'bot';
 
 // --- Publishing Types ---
 
-export type PostStatus = 'queued' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'deleted';
+export type PostStatus =
+  | 'draft'
+  | 'queued'
+  | 'scheduled'
+  | 'publishing'
+  | 'published'
+  | 'failed'
+  | 'deleted';
 
 export type PostCreationSource = 'api' | 'mcp' | 'dashboard';
 
@@ -29,7 +36,16 @@ export interface CreatePostRequest {
     content?: string;
     media?: { url: string; alt_text?: string }[];
   }>;
+  connection_overrides?: Record<string, {
+    content?: string;
+    media?: MediaItem[];
+  }>;
   scheduled_at?: string;
+  /** IANA zone the schedule was authored in (e.g. 'Europe/Berlin'). */
+  scheduled_tz?: string;
+  /** true: save only — items get status 'draft', nothing is ever published
+   *  without a later explicit action (GOAL-RUN6 Kalender). */
+  draft?: boolean;
   first_comment?: string;
   adapt_content?: boolean;
   evergreen?: boolean;
@@ -427,7 +443,44 @@ export const CREDIT_COSTS = {
   auto_context: 1,
   template_draft: 1,
   template_prefill: 1,
+  pillar_splinter: 3,
 } as const;
+
+// --- Splinter Engine (GOAL-RUN6 §12 — Owned-Media-Flywheel) ---
+// One pillar input (long-form text or dictated memo) is split into several
+// STRUCTURALLY different channel-native drafts (Welsh 1-3-5), each labeled
+// with the psychological framework that explains WHY it works (PIA / 4A) —
+// transparency over black-box AI.
+
+export type SplinterFramework4A = 'actionable' | 'analytical' | 'aspirational' | 'anthropological';
+
+export interface SplinterSuggestion {
+  /** Target platform this splinter is written for. */
+  platform: PlatformType;
+  /** Catalog template that shaped the structure (id), if one was used. */
+  template_id?: string;
+  /** Human-readable structure label, e.g. "Carousel", "Kurz-Hook", "Value-Post". */
+  format_label: string;
+  /** Which 4A angle this splinter takes. */
+  framework_4a: SplinterFramework4A;
+  /** One sentence: the Pain-Insight-Action mapping of this splinter. */
+  pia_note: string;
+  /** The core idea (of the 3 extracted) this splinter belongs to, 0-based. */
+  core_idea_index: number;
+  hook: string;
+  content: string;
+  first_comment?: string;
+  /** Carousel slide texts, when the format calls for slides. */
+  slides?: string[];
+  /** Suggested publish day offset from tomorrow (0 = tomorrow). */
+  suggested_day_offset: number;
+}
+
+export interface SplinterResult {
+  core_ideas: string[];
+  suggestions: SplinterSuggestion[];
+  credits_used: number;
+}
 
 // --- Post Template Types (GOAL-RUN4) ---
 // A template is a fixed, curated combination of the seven layers described in

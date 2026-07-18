@@ -22,4 +22,5 @@ export type ProloraEvents = {
   'discovery/community-health': { data: { workspaceId: string } };
   'discovery/opportunity-expiry': { data: { workspaceId: string } };
   'discovery/optimal-timing': { data: { workspaceId: string; platform: string } };
+  'media/generate': { data: { generationId: string; workspaceId: string } };
 };

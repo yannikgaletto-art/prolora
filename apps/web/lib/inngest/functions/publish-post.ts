@@ -230,7 +230,8 @@ async function publishAttempt(
 
   // Media: storage keys -> per-platform variant -> FRESH signed URLs (R2).
   const media: MediaAttachment[] = [];
-  for (const ref of (group.media ?? []) as MediaRef[]) {
+  const itemMedia = item.media?.length ? item.media : ((group.media ?? []) as MediaRef[]);
+  for (const ref of itemMedia) {
     const preparedMedia =
       ref.type === 'image'
         ? await prepareImageForPlatform(connection.platform, ref)
@@ -247,7 +248,7 @@ async function publishAttempt(
     const { token } = await getValidToken(connection.id);
     const result = await adapter.publish(
       {
-        content: item.adapted_content ?? group.original_content,
+        content: item.resolved_content ?? item.adapted_content ?? group.original_content,
         media,
         connectionConfig: connection.config ?? {},
         idempotencyKey: item.id,

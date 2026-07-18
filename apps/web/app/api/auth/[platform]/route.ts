@@ -17,6 +17,15 @@ import {
 const OAUTH_PLATFORMS = ['linkedin', 'x', 'mastodon'] as const;
 const CREDENTIAL_PLATFORMS = ['bluesky', 'telegram'] as const;
 
+// GOAL-RUN6 Phase 0: with ?format=json the initiate step returns the consent
+// URL as JSON instead of a 302. The dashboard calls this via fetchApi so any
+// pre-consent error (platform_not_configured, invalid_instance, ...) renders
+// inline in the connect modal instead of as a raw JSON error page. The
+// Set-Cookie headers (state/PKCE) apply to same-origin fetch responses too.
+function consentResponse(url: string, wantsJson: boolean): NextResponse {
+  return wantsJson ? NextResponse.json({ redirect_url: url }) : NextResponse.redirect(url);
+}
+
 // GET /api/auth/{linkedin|x|mastodon} — initiate the OAuth redirect.
 // Mastodon additionally requires ?instance=mastodon.social
 export async function GET(
@@ -31,10 +40,11 @@ export async function GET(
     }
 
     const workspaceId = await getWorkspaceId(req);
+    const wantsJson = req.nextUrl.searchParams.get('format') === 'json';
 
     if (platform === 'linkedin') {
       const { url, state } = getLinkedInAuthUrl(workspaceId);
-      const res = NextResponse.redirect(url);
+      const res = consentResponse(url, wantsJson);
       res.cookies.set(stateCookieName(platform), state, COOKIE_OPTIONS);
       return res;
     }
@@ -42,7 +52,7 @@ export async function GET(
     if (platform === 'x') {
       const pkce = generatePkce();
       const { url, state } = getXAuthUrl(workspaceId, pkce.challenge);
-      const res = NextResponse.redirect(url);
+      const res = consentResponse(url, wantsJson);
       res.cookies.set(stateCookieName(platform), state, COOKIE_OPTIONS);
       res.cookies.set(PKCE_COOKIE, pkce.verifier, COOKIE_OPTIONS);
       return res;
@@ -50,12 +60,12 @@ export async function GET(
 
     // mastodon
     const instance = req.nextUrl.searchParams.get('instance');
-    if (!instance) {
+    if (!instance || !instance.trim()) {
       return jsonError(400, 'Query parameter ?instance= is required for Mastodon.', 'missing_instance');
     }
     const url = await getMastodonAuthUrl(workspaceId, instance);
     const state = new URL(url).searchParams.get('state') ?? '';
-    const res = NextResponse.redirect(url);
+    const res = consentResponse(url, wantsJson);
     res.cookies.set(stateCookieName(platform), state, COOKIE_OPTIONS);
     return res;
   } catch (error) {
