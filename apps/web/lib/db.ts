@@ -13,7 +13,7 @@ export function getServiceDb(): SupabaseClient {
 export interface ConnectionRow {
   id: string;
   workspace_id: string;
-  platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram';
+  platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram' | 'discord' | 'devto' | 'hashnode';
   account_name: string;
   account_id: string | null;
   account_type: string;
@@ -32,6 +32,15 @@ export interface ConnectionRow {
   refresh_locked_until: string | null;
   created_at: string;
 }
+
+// Explicit allowlist for the secret-bearing platform_connections table.
+// Server-only credential paths may request this full row, but never `*`.
+export const CONNECTION_ROW_COLUMNS = [
+  'id', 'workspace_id', 'platform', 'account_name', 'account_id', 'account_type',
+  'avatar_url', 'access_token_encrypted', 'refresh_token_encrypted', 'token_expires_at',
+  'app_password_encrypted', 'bot_token_encrypted', 'scopes', 'status', 'config',
+  'last_used_at', 'last_health_check', 'rate_limit_state', 'refresh_locked_until', 'created_at',
+].join(', ');
 
 export interface ApiKeyRow {
   id: string;
@@ -81,7 +90,7 @@ export interface PostItemRow {
   id: string;
   post_group_id: string;
   connection_id: string;
-  platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram';
+  platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram' | 'discord' | 'devto' | 'hashnode';
   adapted_content: string | null;
   resolved_content: string | null;
   media: MediaRef[];
@@ -94,6 +103,49 @@ export interface PostItemRow {
   metrics_updated_at: string | null;
   created_at: string;
 }
+
+export const POST_ITEM_ROW_COLUMNS = [
+  'id', 'post_group_id', 'connection_id', 'platform', 'adapted_content',
+  'resolved_content', 'media', 'status', 'platform_post_id', 'platform_url',
+  'published_at', 'error_message', 'metrics', 'metrics_updated_at', 'created_at',
+].join(', ');
+
+export interface ImpactPredictionRow {
+  id: string;
+  workspace_id: string;
+  post_group_id: string | null;
+  post_item_id: string | null;
+  platform: ConnectionRow['platform'];
+  content_hash: string;
+  virality_score: number;
+  traffic_light: 'green' | 'yellow' | 'red';
+  score_breakdown: {
+    hook: number;
+    structure: number;
+    formatting: number;
+    platform_hygiene: number;
+  };
+  improvements: string[];
+  detected_framework: string | null;
+  prompt_version: number;
+  deterministic_version: number;
+  model: string;
+  outcome_engagement: number | null;
+  outcome_ratio: number | null;
+  outcome_z: number | null;
+  outcome_bucket: 'below' | 'inline' | 'above' | 'outlier' | null;
+  baseline_n: number | null;
+  outcome_at: string | null;
+  created_at: string;
+}
+
+export const IMPACT_PREDICTION_ROW_COLUMNS = [
+  'id', 'workspace_id', 'post_group_id', 'post_item_id', 'platform', 'content_hash',
+  'virality_score', 'traffic_light', 'score_breakdown', 'improvements',
+  'detected_framework', 'prompt_version', 'deterministic_version', 'model',
+  'outcome_engagement', 'outcome_ratio', 'outcome_z', 'outcome_bucket',
+  'baseline_n', 'outcome_at', 'created_at',
+].join(', ');
 
 export interface RawFeedbackRow {
   id: string;
@@ -160,9 +212,20 @@ export interface WorkspaceContextRow {
   suggested_keywords: string[];
   voice_tone: string;
   voice_language: string;
+  creator_style: import('@prolora/shared').StylePreset;
   confidence: number | null;
   last_updated_at: string;
   created_at: string;
+}
+
+export interface PostingScheduleRow {
+  id: string;
+  workspace_id: string;
+  connection_id: string | null;
+  day_of_week: number;
+  local_time: string;
+  timezone: string;
+  is_active: boolean;
 }
 
 export interface DiscoveryCommunityRow {

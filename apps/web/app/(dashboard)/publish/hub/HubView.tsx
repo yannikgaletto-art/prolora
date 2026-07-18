@@ -14,6 +14,7 @@ import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import { storeAppliedTemplate } from '../handoff';
 import { useSpeechInput } from '../templates/useSpeechInput';
+import type { FeatureState } from '@/lib/system/doctor';
 
 export interface HubConnection {
   id: string;
@@ -53,18 +54,12 @@ const PLATFORM_LABELS: Record<PlatformType, string> = {
   bluesky: 'Bluesky',
   mastodon: 'Mastodon',
   telegram: 'Telegram',
+  discord: 'Discord',
+  devto: 'Dev.to',
+  hashnode: 'Hashnode',
 };
 
-// Draft slot: tomorrow + offset, 09:00 local time — the MVP spread until
-// posting_schedules (queue slots) ship.
-function draftSlotIso(dayOffset: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1 + dayOffset);
-  d.setHours(9, 0, 0, 0);
-  return d.toISOString();
-}
-
-export function HubView({ connections }: { connections: HubConnection[] }) {
+export function HubView({ connections, aiState }: { connections: HubConnection[]; aiState: FeatureState }) {
   const router = useRouter();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -86,6 +81,9 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
   const [result, setResult] = useState<SplinterResponse | null>(null);
   const [savedDrafts, setSavedDrafts] = useState<Set<number>>(new Set());
   const [savingDraft, setSavingDraft] = useState<number | null>(null);
+  const [scoringDraft, setScoringDraft] = useState<number | null>(null);
+  const [checksByDraft, setChecksByDraft] = useState<Record<number, { formatting_score: number; platform_hygiene_score: number }>>({});
+  const [impactByDraft, setImpactByDraft] = useState<Record<number, number>>({});
 
   function connectionsFor(platform: PlatformType): HubConnection[] {
     return connections.filter((c) => c.platform === platform);
@@ -130,6 +128,10 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
   }
 
   async function runSplinter() {
+    if (aiState.state !== 'ready') {
+      setFormError(aiState.hint ?? 'AI splintering is not available yet.');
+      return;
+    }
     setSplintering(true);
     setFormError(null);
     setResult(null);
@@ -158,23 +160,46 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
     if (targets.length === 0) return;
     setSavingDraft(index);
     try {
-      await fetchApi('/v1/posts', {
+      const accepted = await fetchApi<{
+        checks: { formatting_score: number; platform_hygiene_score: number };
+      }>('/v1/content/splinters/accept', {
         method: 'POST',
         body: JSON.stringify({
+          connection_id: targets[0].id,
+          platform: suggestion.platform,
           content: suggestion.content,
-          platforms: [targets[0].id],
-          draft: true,
-          scheduled_at: draftSlotIso(suggestion.suggested_day_offset),
-          scheduled_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           first_comment: suggestion.first_comment,
         }),
       });
+      setChecksByDraft((current) => ({ ...current, [index]: accepted.checks }));
       setSavedDrafts((prev) => new Set(prev).add(index));
-      setToast({ variant: 'success', message: 'Als Draft im Kalender gespeichert.' });
+      setToast({ variant: 'success', message: 'Angenommen, kostenlos geprüft und am nächsten freien Slot eingeplant.' });
     } catch (error) {
       setToast({ variant: 'error', message: errorMessage(error) });
     } finally {
       setSavingDraft(null);
+    }
+  }
+
+  async function scoreSuggestion(suggestion: SplinterSuggestion, index: number) {
+    const target = connectionsFor(suggestion.platform)[0];
+    if (!target) return;
+    setScoringDraft(index);
+    try {
+      const result = await fetchApi<{ virality_score: number }>('/v1/posts/score', {
+        method: 'POST',
+        body: JSON.stringify({
+          content: suggestion.content,
+          platform: suggestion.platform,
+          first_comment: suggestion.first_comment,
+          connection_id: target.id,
+        }),
+      });
+      setImpactByDraft((current) => ({ ...current, [index]: result.virality_score }));
+    } catch (error) {
+      setToast({ variant: 'error', message: errorMessage(error) });
+    } finally {
+      setScoringDraft(null);
     }
   }
 
@@ -264,9 +289,12 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
             </p>
           )}
           {formError && <p className="text-sm text-red-600">{formError}</p>}
+          {aiState.state !== 'ready' && !formError && (
+            <p className="text-sm text-amber-700">{aiState.hint ?? 'AI splintering needs setup or available credits.'}</p>
+          )}
 
           <div className="flex justify-end">
-            <Button onClick={runSplinter} loading={splintering || saving} disabled={body.trim().length < 200 && !activeSource}>
+            <Button onClick={runSplinter} loading={splintering || saving} disabled={aiState.state !== 'ready' || (body.trim().length < 200 && !activeSource)}>
               In Posts splittern
             </Button>
           </div>
@@ -329,6 +357,14 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
                       PIA: {s.pia_note}
                     </p>
                   )}
+                  {checksByDraft[index] && (
+                    <p className="mt-2 text-xs text-green-700">
+                      Gratis-Checks: Format {checksByDraft[index].formatting_score}/20 · Hygiene {checksByDraft[index].platform_hygiene_score}/20
+                    </p>
+                  )}
+                  {impactByDraft[index] !== undefined && (
+                    <p className="mt-1 text-xs font-medium text-primary-700">Impact-Score: {impactByDraft[index]}/100</p>
+                  )}
 
                   <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
                     {targets.length > 0 ? (
@@ -338,7 +374,7 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
                         loading={savingDraft === index}
                         disabled={saved}
                       >
-                        {saved ? '✓ Im Kalender' : `Als Draft (Tag +${s.suggested_day_offset + 1})`}
+                        {saved ? '✓ Eingeplant' : 'Annehmen & einplanen'}
                       </Button>
                     ) : (
                       <span className="text-xs text-gray-400">
@@ -347,6 +383,9 @@ export function HubView({ connections }: { connections: HubConnection[] }) {
                     )}
                     <Button size="sm" variant="secondary" onClick={() => openInComposer(s)}>
                       In Composer öffnen
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => scoreSuggestion(s, index)} loading={scoringDraft === index}>
+                      Voller Impact-Score · 1 Credit
                     </Button>
                   </div>
                 </Card>

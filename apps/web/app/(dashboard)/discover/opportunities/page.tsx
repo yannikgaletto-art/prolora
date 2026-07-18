@@ -12,6 +12,7 @@ import type { OpportunityThreadRow } from '@/lib/db';
 import { OpportunityFilters } from './OpportunityFilters';
 import { OpportunityPagination } from './OpportunityPagination';
 import { OpportunityActions } from './OpportunityActions';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 export const metadata: Metadata = { title: 'Opportunities — Prolora' };
 
@@ -58,13 +59,14 @@ export default async function OpportunitiesPage({ searchParams }: OpportunitiesP
   const status = isOpportunityStatus(params.status) ? params.status : undefined;
   const page = params.page ? Math.max(1, parseInt(params.page, 10) || 1) : 1;
 
-  const [communities, result] = await Promise.all([
+  const [communities, result, systemStatus] = await Promise.all([
     getCommunities(workspace.id),
     getOpportunities(workspace.id, {
       status,
       community: params.community || undefined,
       page,
     }),
+    getSystemStatus(workspace.id),
   ]);
 
   const communityOptions = communities.map((community) => ({
@@ -132,6 +134,7 @@ export default async function OpportunitiesPage({ searchParams }: OpportunitiesP
                   opportunityId={opportunity.id}
                   status={opportunity.status}
                   initialDraft={opportunity.draft_content}
+                  aiState={systemStatus.features.ai_drafts}
                 />
               </div>
             </Card>

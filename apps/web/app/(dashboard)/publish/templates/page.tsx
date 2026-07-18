@@ -1,16 +1,16 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { PLAN_LIMITS, type PlanType } from '@prolora/shared';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getConnectionsWithCharacterLimits } from '@/lib/connections/list-connections';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
-import { getServiceDb } from '@/lib/db';
 import { getDict } from '@/lib/i18n';
 import { getLocale } from '@/lib/i18n/server';
 import { TEMPLATE_CATALOG } from '@/lib/templates/catalog';
+import { localizeCatalog } from '@/lib/templates/localization';
 import { TemplateGuide } from './TemplateGuide';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
@@ -26,21 +26,14 @@ export default async function TemplatesPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/login');
 
-  const [connections, context, locale] = await Promise.all([
+  const [connections, context, locale, systemStatus] = await Promise.all([
     getConnectionsWithCharacterLimits(workspace.id),
     getWorkspaceContext(workspace.id),
     getLocale(),
+    getSystemStatus(workspace.id),
   ]);
 
-  const db = getServiceDb();
-  const { data: planRow } = await db
-    .from('workspaces')
-    .select('plan')
-    .eq('id', workspace.id)
-    .single<{ plan: PlanType }>();
-  const aiEnabled = planRow ? (PLAN_LIMITS[planRow.plan]?.ai_credits ?? 0) > 0 : false;
-
-  const templates = TEMPLATE_CATALOG.map(({ prompt_hints: _promptHints, ...summary }) => summary);
+  const templates = localizeCatalog(TEMPLATE_CATALOG, locale).map(({ prompt_hints: _promptHints, ...summary }) => summary);
 
   return (
     // Suspense around the useSearchParams consumer: harmless today (the page
@@ -50,7 +43,10 @@ export default async function TemplatesPage() {
         templates={templates}
         connections={connections}
         contextAvailable={context !== null}
-        aiEnabled={aiEnabled}
+        aiEnabled={systemStatus.features.ai_drafts.state === 'ready'}
+        aiFeature={systemStatus.features.ai_drafts}
+        creditsLimit={systemStatus.plan.ai_credits_limit}
+        creditsUsed={systemStatus.plan.ai_credits_used}
         workspaceId={workspace.id}
         locale={locale}
         dict={getDict(locale)}

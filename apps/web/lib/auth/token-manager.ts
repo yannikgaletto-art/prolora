@@ -1,4 +1,4 @@
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import { encrypt, decrypt } from '@/lib/auth/encryption';
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type TokenInfo } from '@/lib/adapters/types';
@@ -28,8 +28,8 @@ export interface RefreshOutcome {
   expiresAt?: string;
 }
 
-export async function getValidToken(connectionId: string): Promise<ValidToken> {
-  let connection = await loadConnection(connectionId);
+export async function getValidToken(connectionId: string, workspaceId: string): Promise<ValidToken> {
+  let connection = await loadConnection(connectionId, workspaceId);
   assertUsable(connection);
 
   if (needsRefresh(connection)) {
@@ -43,9 +43,10 @@ export async function getValidToken(connectionId: string): Promise<ValidToken> {
 // Used by the Inngest tokens/refresh function. force=true skips the due-check.
 export async function refreshConnectionToken(
   connectionId: string,
+  workspaceId: string,
   force = false
 ): Promise<RefreshOutcome> {
-  const connection = await loadConnection(connectionId);
+  const connection = await loadConnection(connectionId, workspaceId);
   assertUsable(connection);
 
   if (!(connection.platform in REFRESH_BUFFER_MS)) {
@@ -129,6 +130,14 @@ export function buildTokenInfo(connection: ConnectionRow): TokenInfo {
         chatId,
       };
     }
+    case 'discord':
+    case 'devto':
+    case 'hashnode': {
+      if (!connection.access_token_encrypted) {
+        throw new PlatformError('AUTH_REVOKED', connection.platform, 'Connection has no credential');
+      }
+      return { accessToken: decrypt(connection.access_token_encrypted) };
+    }
   }
 }
 
@@ -136,11 +145,12 @@ export function buildTokenInfo(connection: ConnectionRow): TokenInfo {
 // Internals
 // ---------------------------------------------------------------
 
-async function loadConnection(connectionId: string): Promise<ConnectionRow> {
+async function loadConnection(connectionId: string, workspaceId: string): Promise<ConnectionRow> {
   const db = getServiceDb();
   const { data, error } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
+    .eq('workspace_id', workspaceId)
     .eq('id', connectionId)
     .maybeSingle<ConnectionRow>();
 
@@ -165,13 +175,13 @@ function assertUsable(connection: ConnectionRow): void {
 
 async function refreshWithLock(connection: ConnectionRow): Promise<ConnectionRow> {
   const db = getServiceDb();
-  const acquired = await tryAcquireLock(connection.id);
+  const acquired = await tryAcquireLock(connection.id, connection.workspace_id);
 
   if (!acquired) {
     // Another job is refreshing. Wait, then read the fresh token it wrote.
     for (let attempt = 0; attempt < LOCK_MAX_WAITS; attempt++) {
       await sleep(LOCK_WAIT_MS);
-      const fresh = await loadConnection(connection.id);
+      const fresh = await loadConnection(connection.id, connection.workspace_id);
       if (fresh.status !== 'active') {
         assertUsable(fresh); // throws
       }
@@ -190,9 +200,9 @@ async function refreshWithLock(connection: ConnectionRow): Promise<ConnectionRow
   try {
     // Re-read under the lock: someone may have refreshed between our
     // initial read and the lock acquisition.
-    const current = await loadConnection(connection.id);
+    const current = await loadConnection(connection.id, connection.workspace_id);
     if (!needsRefresh(current)) {
-      await releaseLock(connection.id);
+      await releaseLock(connection.id, connection.workspace_id);
       return current;
     }
 
@@ -224,13 +234,14 @@ async function refreshWithLock(connection: ConnectionRow): Promise<ConnectionRow
     const { error: writeError } = await db
       .from('platform_connections')
       .update(update)
+      .eq('workspace_id', current.workspace_id)
       .eq('id', current.id);
     if (writeError) {
       throw new Error(`[token-manager] token write failed: ${writeError.message}`);
     }
 
     // Double Assurance: read back and verify the new expiry landed.
-    const verified = await loadConnection(current.id);
+    const verified = await loadConnection(current.id, current.workspace_id);
     if (verified.token_expires_at !== result.expiresAt.toISOString()) {
       throw new Error('[token-manager] token write verification failed');
     }
@@ -248,18 +259,19 @@ async function refreshWithLock(connection: ConnectionRow): Promise<ConnectionRow
         'Refresh token rejected — user must reconnect'
       );
     }
-    await releaseLock(connection.id);
+    await releaseLock(connection.id, connection.workspace_id);
     throw error;
   }
 }
 
 // Atomic compare-and-swap: only one concurrent caller gets a row back.
-async function tryAcquireLock(connectionId: string): Promise<boolean> {
+async function tryAcquireLock(connectionId: string, workspaceId: string): Promise<boolean> {
   const db = getServiceDb();
   const nowIso = new Date().toISOString();
   const { data, error } = await db
     .from('platform_connections')
     .update({ refresh_locked_until: new Date(Date.now() + LOCK_DURATION_MS).toISOString() })
+    .eq('workspace_id', workspaceId)
     .eq('id', connectionId)
     .or(`refresh_locked_until.is.null,refresh_locked_until.lt.${nowIso}`)
     .select('id');
@@ -270,11 +282,12 @@ async function tryAcquireLock(connectionId: string): Promise<boolean> {
   return (data ?? []).length === 1;
 }
 
-async function releaseLock(connectionId: string): Promise<void> {
+async function releaseLock(connectionId: string, workspaceId: string): Promise<void> {
   const db = getServiceDb();
   const { error } = await db
     .from('platform_connections')
     .update({ refresh_locked_until: null })
+    .eq('workspace_id', workspaceId)
     .eq('id', connectionId);
   if (error) {
     // Lock expires on its own after 30s — log, don't throw.
@@ -293,6 +306,7 @@ export async function markConnectionExpired(connection: ConnectionRow, reason: s
   const { error } = await db
     .from('platform_connections')
     .update({ status: 'expired', refresh_locked_until: null })
+    .eq('workspace_id', connection.workspace_id)
     .eq('id', connection.id);
   if (error) {
     console.error(`[token-manager] failed to mark connection expired: ${error.message}`);

@@ -1,4 +1,4 @@
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import type { Connection, PlatformType } from '@prolora/shared';
 
 // Public DTO — never exposes encrypted fields or raw config.
@@ -71,6 +71,7 @@ export async function saveConnection(input: SaveConnectionInput): Promise<Connec
     const { error } = await db
       .from('platform_connections')
       .update(payload)
+      .eq('workspace_id', input.workspaceId)
       .eq('id', existing.id);
     if (error) throw new Error(`[connections] update failed: ${error.message}`);
     connectionId = existing.id;
@@ -90,7 +91,8 @@ export async function saveConnection(input: SaveConnectionInput): Promise<Connec
   // is NOT plaintext (Invariante 1 — encrypted values carry the version prefix).
   const { data: verified, error: verifyError } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
+    .eq('workspace_id', input.workspaceId)
     .eq('id', connectionId)
     .single<ConnectionRow>();
 

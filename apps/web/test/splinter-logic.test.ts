@@ -37,6 +37,18 @@ describe('pickSplinterTemplates', () => {
     const b = pickSplinterTemplates(['linkedin', 'x']).map((t) => t.id);
     expect(a).toEqual(b);
   });
+
+  test('prioritizes the preferred style without removing structural variety', () => {
+    const catalog = [
+      { ...TEMPLATE_CATALOG[0], id: 'neutral', style_preset: 'neutral' as const },
+      { ...TEMPLATE_CATALOG[1], id: 'pia', style_preset: 'koe_pia' as const },
+      { ...TEMPLATE_CATALOG[2], id: 'evidence', style_preset: 'abdaal_evidence' as const },
+      { ...TEMPLATE_CATALOG[3], id: 'welsh', style_preset: 'welsh_short' as const },
+    ];
+    const picked = pickSplinterTemplates(['linkedin'], catalog, 'koe_pia');
+    expect(picked[0]?.id).toBe('pia');
+    expect(picked.length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe('parseSplinterOutput', () => {

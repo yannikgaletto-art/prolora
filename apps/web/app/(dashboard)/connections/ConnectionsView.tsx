@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { Connection, PlatformType } from '@prolora/shared';
+import type { AppLocale, Connection, PlatformType } from '@prolora/shared';
 import { Button } from '@/app/components/Button';
 import { Card } from '@/app/components/Card';
 import { Badge } from '@/app/components/Badge';
@@ -19,23 +19,14 @@ import {
   type OAuthPlatform,
 } from '@/app/lib/connect';
 import type { ConnectionListItem } from '@/lib/connections/list-connections';
+import { CONNECTION_REGISTRY, getConnectorDescriptor, type PlatformConnectorDescriptor } from '@/lib/connections/registry';
+import type { FeatureState } from '@/lib/system/doctor';
+import { getRun7Dict, type Run7Dict } from '@/lib/i18n/run7';
 
 // Platforms that authenticate via an OAuth consent screen. GOAL-RUN6 Phase 0:
 // the initiate step is a fetchApi JSON round-trip (startOAuthConnect) so
 // pre-consent errors render inline; only the consent hop itself navigates.
 // Mastodon is OAuth too, but needs an instance first, so it gets its own step.
-const OAUTH_REDIRECT_PLATFORMS: PlatformType[] = ['linkedin', 'x'];
-
-const PLATFORM_META: Record<PlatformType, { label: string; initial: string; color: string }> = {
-  linkedin: { label: 'LinkedIn', initial: 'in', color: '#0A66C2' },
-  x: { label: 'X', initial: 'X', color: '#000000' },
-  bluesky: { label: 'Bluesky', initial: 'B', color: '#1185FE' },
-  mastodon: { label: 'Mastodon', initial: 'M', color: '#6364FF' },
-  telegram: { label: 'Telegram', initial: 'T', color: '#26A5E4' },
-};
-
-const ALL_PLATFORMS: PlatformType[] = ['linkedin', 'x', 'bluesky', 'mastodon', 'telegram'];
-
 interface AvailableChat {
   chat_id: string;
   title: string;
@@ -66,7 +57,7 @@ function formatLastUsed(value: string | null): string {
 }
 
 function PlatformBadge({ platform, size = 10 }: { platform: PlatformType; size?: number }) {
-  const meta = PLATFORM_META[platform];
+  const meta = getConnectorDescriptor(platform) ?? { color: '#64748B', initial: platform.slice(0, 2).toUpperCase() };
   return (
     <span
       aria-hidden="true"
@@ -79,30 +70,38 @@ function PlatformBadge({ platform, size = 10 }: { platform: PlatformType; size?:
 }
 
 function PickerRow({
-  platform,
+  connector,
   onSelect,
   pending,
+  strings,
 }: {
-  platform: PlatformType;
-  onSelect: (platform: PlatformType) => void;
+  connector: PlatformConnectorDescriptor;
+  onSelect: (connector: PlatformConnectorDescriptor) => void;
   pending: boolean;
+  strings: Run7Dict['connections'];
 }) {
-  const meta = PLATFORM_META[platform];
   return (
     <button
       type="button"
       className="flex w-full items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5 text-left hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
-      onClick={() => onSelect(platform)}
+      onClick={() => onSelect(connector)}
       disabled={pending}
     >
-      <PlatformBadge platform={platform} size={9} />
-      <span className="text-sm font-medium text-gray-900">{meta.label}</span>
-      {pending && <span className="ml-auto text-xs text-gray-400">Opening…</span>}
+      <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ backgroundColor: connector.color }}>{connector.initial}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-gray-900">{connector.label}</span>
+        <span className="block truncate text-xs text-gray-500">{connector.description}</span>
+      </span>
+      <Badge tone={connector.availability === 'available' ? 'green' : connector.availability === 'setup_required' ? 'amber' : 'gray'}>
+        {connector.availability === 'available' ? strings.available : connector.availability === 'setup_required' ? strings.setupNeeded : connector.availability === 'coming_soon' ? strings.comingSoon : strings.manualAssist}
+      </Badge>
+      {pending && <span className="ml-auto text-xs text-gray-400">{strings.opening}</span>}
     </button>
   );
 }
 
-export function ConnectionsView({ initialConnections }: { initialConnections: ConnectionListItem[] }) {
+export function ConnectionsView({ initialConnections, connectStates, locale }: { initialConnections: ConnectionListItem[]; connectStates: { linkedin: FeatureState; x: FeatureState }; locale: AppLocale }) {
+  const strings = getRun7Dict(locale).connections;
   const router = useRouter();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -129,9 +128,28 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
   const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramSubmitting, setTelegramSubmitting] = useState(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
+  const [credentialConnector, setCredentialConnector] = useState<PlatformConnectorDescriptor | null>(null);
+  const [simpleCredential, setSimpleCredential] = useState('');
+  const [credentialFields, setCredentialFields] = useState<Record<string, string>>({});
+  const [simpleSubmitting, setSimpleSubmitting] = useState(false);
+  const [simpleError, setSimpleError] = useState<string | null>(null);
+  const [pickerInfo, setPickerInfo] = useState<{ title: string; description: string; deepLink?: string } | null>(null);
 
-  function openConnect(platform: PlatformType) {
-    if (OAUTH_REDIRECT_PLATFORMS.includes(platform)) {
+  function openConnect(connector: PlatformConnectorDescriptor) {
+    setPickerInfo(null);
+    const platform = connector.id;
+    if (platform === 'linkedin' || platform === 'x') {
+      const state = connectStates[platform];
+      if (state.state !== 'ready') {
+        setPickerInfo({ title: `${connector.label}: ${strings.setupRequired}`, description: state.hint ?? connector.description });
+        return;
+      }
+    }
+    if (connector.connectFlow === 'info') {
+      setPickerInfo({ title: connector.label, description: connector.description, deepLink: connector.deepLink });
+      return;
+    }
+    if (connector.connectFlow === 'oauth') {
       // Stay in the picker: on success the browser navigates to the consent
       // screen; on failure the error renders right here instead of a JSON page.
       void handleOAuthConnect(platform as OAuthPlatform);
@@ -139,12 +157,39 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
     }
     setPickerOpen(false);
     setPickerError(null);
-    if (platform === 'mastodon') {
+    if (connector.connectFlow === 'mastodon') {
       setMastodonInstance('');
       setMastodonError(null);
       setMastodonOpen(true);
-    } else if (platform === 'bluesky' || platform === 'telegram') {
-      setCredentialModal(platform);
+    } else if (connector.connectFlow === 'bluesky') {
+      setCredentialModal('bluesky');
+    } else if (connector.connectFlow === 'telegram') {
+      setCredentialModal('telegram');
+    } else if (connector.connectFlow === 'credential') {
+      setCredentialConnector(connector);
+      setSimpleCredential('');
+      setCredentialFields({});
+      setSimpleError(null);
+    }
+  }
+
+  async function handleSimpleCredentialSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!credentialConnector) return;
+    setSimpleSubmitting(true);
+    setSimpleError(null);
+    try {
+      const result = await fetchApi<ConnectResponse>('/v1/connections/credential', {
+        method: 'POST',
+        body: JSON.stringify({ platform: credentialConnector.id, credential: simpleCredential, ...credentialFields }),
+      });
+      setCredentialConnector(null);
+      setToast({ variant: 'success', message: `${strings.connected}: ${result.connection.account_name} · ${credentialConnector.label}.` });
+      router.refresh();
+    } catch (error) {
+      setSimpleError(errorMessage(error));
+    } finally {
+      setSimpleSubmitting(false);
     }
   }
 
@@ -295,7 +340,7 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {initialConnections.map((connection) => {
-            const meta = PLATFORM_META[connection.platform];
+            const meta = getConnectorDescriptor(connection.platform);
             const isActive = connection.status === 'active';
             return (
               <Card key={connection.connection_id}>
@@ -304,7 +349,7 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
                     <PlatformBadge platform={connection.platform} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">{connection.account_name}</p>
-                      <p className="text-xs text-gray-500">{meta.label}</p>
+                      <p className="text-xs text-gray-500">{meta?.label ?? connection.platform}</p>
                     </div>
                   </div>
                   <Badge status={connection.status} />
@@ -323,7 +368,7 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
                     >
                       Disconnect
                     </Button>
-                  ) : OAUTH_REDIRECT_PLATFORMS.includes(connection.platform) ? (
+                  ) : getConnectorDescriptor(connection.platform)?.authKind === 'oauth2' ? (
                     <Button
                       variant="primary"
                       size="sm"
@@ -341,7 +386,10 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
                       Reconnect
                     </Button>
                   ) : (
-                    <Button variant="primary" size="sm" onClick={() => openConnect(connection.platform)}>
+                    <Button variant="primary" size="sm" onClick={() => {
+                      const connector = CONNECTION_REGISTRY.find((item) => item.id === connection.platform);
+                      if (connector) openConnect(connector);
+                    }}>
                       Reconnect
                     </Button>
                   )}
@@ -363,14 +411,21 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
         description="Choose a platform to connect to this workspace."
       >
         <div className="space-y-2">
-          {ALL_PLATFORMS.map((platform) => (
-            <PickerRow
-              key={platform}
-              platform={platform}
-              onSelect={openConnect}
-              pending={oauthPending === platform}
-            />
-          ))}
+          {CONNECTION_REGISTRY.map((connector) => {
+            const availability =
+              (connector.id === 'linkedin' || connector.id === 'x') && connectStates[connector.id].state === 'ready'
+                ? 'available'
+                : connector.availability;
+            return (
+              <PickerRow
+                key={connector.id}
+                connector={{ ...connector, availability }}
+                onSelect={openConnect}
+                pending={oauthPending === connector.id}
+                strings={strings}
+              />
+            );
+          })}
         </div>
         {pickerError && (
           <div className="mt-3 rounded-md bg-red-50 px-3 py-2">
@@ -378,6 +433,40 @@ export function ConnectionsView({ initialConnections }: { initialConnections: Co
             {pickerError.hint && <p className="mt-1 text-xs text-red-500">{pickerError.hint}</p>}
           </div>
         )}
+        {pickerInfo && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            <p className="font-medium">{pickerInfo.title}</p>
+            <p className="mt-1">{pickerInfo.description}</p>
+            {pickerInfo.deepLink && (
+              <a href={pickerInfo.deepLink} target="_blank" rel="noreferrer" className="mt-2 inline-block font-medium underline">{strings.openPublishingPage}</a>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={credentialConnector !== null}
+        onClose={() => setCredentialConnector(null)}
+        title={`Connect ${credentialConnector?.label ?? ''}`}
+        description={credentialConnector?.credentialForm?.description}
+      >
+        <form onSubmit={handleSimpleCredentialSubmit} className="space-y-4">
+          <Input
+            label={credentialConnector?.credentialForm?.secretLabel ?? strings.credential}
+            type="password"
+            value={simpleCredential}
+            onChange={(event) => setSimpleCredential(event.target.value)}
+            required
+          />
+          {credentialConnector?.credentialForm?.fields?.map((field) => (
+            <Input key={field.key} label={field.label} value={credentialFields[field.key] ?? ''} onChange={(event) => setCredentialFields((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.placeholder} required />
+          ))}
+          {simpleError && <p className="text-sm text-red-600" role="alert">{simpleError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" disabled={simpleSubmitting} onClick={() => setCredentialConnector(null)}>{strings.cancel}</Button>
+            <Button type="submit" loading={simpleSubmitting}>{strings.connect}</Button>
+          </div>
+        </form>
       </Modal>
 
       {/* Mastodon: needs an instance domain before the OAuth redirect can be built.

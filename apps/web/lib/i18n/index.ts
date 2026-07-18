@@ -1,8 +1,7 @@
-// i18n foundation (GOAL-RUN5 D7/T1): typed dictionaries for the wizard CHROME
-// only (~40 keys). Catalog content stays German for now — translating guidance
-// without post language would ship a half-German experience (see TODOS.md #1).
-// No locale routing, no dependency; ports 1:1 to next-intl if the app-wide
-// migration ever happens.
+// i18n foundation (GOAL-RUN5 D7/T1): typed dictionaries for wizard chrome.
+// GOAL-RUN7 adds semantic DE/EN/ES catalog copy and dictionaries for the new
+// activation surfaces. Post language remains independently controlled by the
+// workspace voice configuration. No locale-routing dependency is required.
 import type { AppLocale } from '@prolora/shared';
 import { de } from './de';
 import { en } from './en';
@@ -78,6 +77,56 @@ export interface WizardDict {
   language_content_note: string;
   toast_applied: string;
   toast_expired: string;
+  impact_title: string;
+  impact_description: string;
+  impact_check: string;
+  impact_checking: string;
+  impact_credit_hint: string;
+  impact_green: string;
+  impact_yellow: string;
+  impact_red: string;
+  impact_green_message: string;
+  impact_yellow_message: string;
+  impact_red_message: string;
+  impact_retry: string;
+  impact_no_platform: string;
+  impact_empty: string;
+  impact_fold_label: string;
+  impact_more: string;
+  impact_move_link: string;
+  impact_link_context: string;
+  impact_hook: string;
+  impact_structure: string;
+  impact_formatting: string;
+  impact_hygiene: string;
+  impact_improvements: string;
+  impact_hook_rewrite: string;
+  impact_apply: string;
+  impact_variants_button: string;
+  impact_variants_title: string;
+  impact_variant_placeholder: string;
+  impact_variant_compare: string;
+  impact_variant_cost: string;
+  impact_variant_original: string;
+  impact_variant_score: string;
+  impact_variant_use: string;
+  impact_expectation: string;
+  impact_linkedin_calibration: string;
+  impact_accuracy_title: string;
+  impact_accuracy_description: string;
+  impact_accuracy_low_data: string;
+  impact_accuracy_result: string;
+  impact_accuracy_matrix: string;
+  impact_bucket_below: string;
+  impact_bucket_inline: string;
+  impact_bucket_above: string;
+  impact_bucket_outlier: string;
+  creator_style_title: string;
+  creator_style_description: string;
+  creator_style_save: string;
+  creator_style_saving: string;
+  creator_style_saved: string;
+  creator_style_error: string;
 }
 
 const DICTS: Record<AppLocale, WizardDict> = { de, en, es };

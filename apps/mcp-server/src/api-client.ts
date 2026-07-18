@@ -12,6 +12,8 @@ import type {
   FeedbackSummaryResponse,
   GetResponseMapResponse,
   GetVoiceConfigResponse,
+  ImpactDeterministicResult,
+  ImpactScoreResponse,
   ListConnectionsResponse,
   ListFeedbackResponse,
   ListOpportunitiesResponse,
@@ -124,6 +126,22 @@ export class ProloraClient {
 
   adaptContent(input: { content: string; platforms: string[] }): Promise<AdaptContentResponse> {
     return this.request('POST', '/content/adapt', { body: input, llm: true });
+  }
+
+  scorePost(input: {
+    content: string;
+    platform: string;
+    first_comment?: string;
+    language?: string;
+    connection_id?: string;
+    mode?: 'checks' | 'full';
+  }): Promise<ImpactScoreResponse | ImpactDeterministicResult> {
+    const { mode, ...body } = input;
+    return this.request('POST', '/posts/score', {
+      query: mode === 'checks' ? { mode: 'checks' } : undefined,
+      body,
+      llm: mode !== 'checks',
+    });
   }
 
   listConnections(): Promise<ListConnectionsResponse> {

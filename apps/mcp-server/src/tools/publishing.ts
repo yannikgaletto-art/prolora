@@ -4,6 +4,16 @@ import type { ProloraClient } from '../api-client.js';
 import { toToolError } from '../errors.js';
 
 const PLATFORM_ENUM = z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']);
+const SCORE_PLATFORM_ENUM = z.enum([
+  'linkedin',
+  'x',
+  'bluesky',
+  'mastodon',
+  'telegram',
+  'discord',
+  'devto',
+  'hashnode',
+]);
 
 export function registerPublishingTools(server: McpServer, client: ProloraClient): void {
   server.tool(
@@ -42,6 +52,29 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
     async (input) => {
       try {
         const result = await client.adaptContent(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'score_post',
+    'Bewertet einen Post-Entwurf vor dem Veröffentlichen. mode "checks" ist kostenlos und prüft ' +
+      'Format, Links und Plattform-Limits; mode "full" (Default) ergänzt Hook-/Struktur-Coaching für 1 AI-Credit.',
+    {
+      content: z.string().min(1).max(30_000).describe('Der noch nicht veröffentlichte Post-Text.'),
+      platform: SCORE_PLATFORM_ENUM.describe('Plattform-Name, keine connection_id.'),
+      first_comment: z.string().max(2_000).optional(),
+      language: z.string().length(2).optional().describe('Optionale Ausgabesprache, z. B. de, en oder es.'),
+      connection_id: z.string().uuid().optional().describe('Optional für eine kalibrierte Interaktionsspanne aus diesem Account.'),
+      mode: z.enum(['checks', 'full']).default('full').optional(),
+    },
+    {},
+    async (input) => {
+      try {
+        const result = await client.scorePost(input);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return toToolError(error);

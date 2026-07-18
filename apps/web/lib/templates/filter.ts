@@ -8,6 +8,7 @@ import type {
   TemplateFormat,
   TemplateIntent,
   TemplatePostType,
+  StylePreset,
 } from '@prolora/shared';
 import { TEMPLATE_CATALOG } from '@/lib/templates/catalog';
 
@@ -18,12 +19,24 @@ export interface TemplateFilter {
   format?: TemplateFormat;
 }
 
-export function filterTemplates(filter: TemplateFilter = {}): PostTemplate[] {
-  return TEMPLATE_CATALOG.filter((template) => {
+export function filterTemplates(
+  filter: TemplateFilter = {},
+  preferredStyle: StylePreset = 'neutral',
+  catalog: PostTemplate[] = TEMPLATE_CATALOG
+): PostTemplate[] {
+  const filtered = catalog.filter((template) => {
     if (filter.intent && template.intent !== filter.intent) return false;
     if (filter.post_type && template.post_type !== filter.post_type) return false;
     if (filter.platform && !template.recommended_platforms.includes(filter.platform)) return false;
     if (filter.format && template.format !== filter.format) return false;
     return true;
   });
+  if (preferredStyle === 'neutral') return filtered;
+  return filtered
+    .map((template, index) => ({ template, index }))
+    .sort((a, b) =>
+      Number(b.template.style_preset === preferredStyle) -
+        Number(a.template.style_preset === preferredStyle) || a.index - b.index
+    )
+    .map(({ template }) => template);
 }

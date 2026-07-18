@@ -44,6 +44,8 @@ const COLUMNS = {
   response_map:
     'id, question_pattern, intent_type, best_answer, proof_asset_url, link_policy, times_used, avg_engagement, created_at',
   usage_logs: 'id, action, credits_used, metadata, created_at',
+  impact_predictions:
+    'id, post_group_id, post_item_id, platform, content_hash, virality_score, traffic_light, score_breakdown, improvements, detected_framework, prompt_version, deterministic_version, model, outcome_engagement, outcome_ratio, outcome_z, outcome_bucket, baseline_n, outcome_at, created_at',
   feedback_sources: 'id, source_type, config, status, last_polled_at, last_poll_cursor, created_at',
 } as const;
 
@@ -97,6 +99,7 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     opportunityThreads,
     responseMap,
     usageLogs,
+    impactPredictions,
     feedbackSources,
   ] = await Promise.all([
     fetchTable('platform_connections', workspaceScoped('platform_connections', COLUMNS.platform_connections), offset),
@@ -139,6 +142,7 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     fetchTable('opportunity_threads', workspaceScoped('opportunity_threads', COLUMNS.opportunity_threads), offset),
     fetchTable('response_map', workspaceScoped('response_map', COLUMNS.response_map), offset),
     fetchTable('usage_logs', workspaceScoped('usage_logs', COLUMNS.usage_logs), offset),
+    fetchTable('impact_predictions', workspaceScoped('impact_predictions', COLUMNS.impact_predictions), offset),
     fetchTable('feedback_sources', workspaceScoped('feedback_sources', COLUMNS.feedback_sources), offset),
   ]);
 
@@ -163,6 +167,7 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     opportunity_threads: opportunityThreads,
     response_map: responseMap,
     usage_logs: usageLogs,
+    impact_predictions: impactPredictions,
     feedback_sources: feedbackSources,
   };
 

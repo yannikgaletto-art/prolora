@@ -84,6 +84,31 @@ export interface AdaptContentResponse {
   adaptations: ContentAdaptation[];
 }
 
+export interface ImpactDeterministicResult {
+  formatting_score: number;
+  platform_hygiene_score: number;
+  checks: Array<{ id: string; passed: boolean; points: number; message_key: string }>;
+  body_links: string[];
+  fold_text: string;
+}
+
+export interface ImpactScoreResponse {
+  virality_score: number;
+  traffic_light: 'green' | 'yellow' | 'red';
+  score_breakdown: {
+    hook: number;
+    structure: number;
+    formatting: number;
+    platform_hygiene: number;
+  };
+  detected_framework: 'pia' | 'hormozi_contrast' | 'relatable_enemy' | 'evidence_story' | 'none';
+  improvements: string[];
+  hook_rewrite?: string;
+  deterministic: ImpactDeterministicResult;
+  credits_used: number;
+  expectation?: { low: number; median: number; high: number; n: number };
+}
+
 export interface Connection {
   connection_id: string;
   platform: Platform;

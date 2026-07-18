@@ -1,6 +1,6 @@
 import { NonRetriableError } from 'inngest';
 import { inngest } from '../client';
-import { getServiceDb, type ConnectionRow, type PostGroupRow, type PostItemRow, type MediaRef } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, POST_ITEM_ROW_COLUMNS, getServiceDb, type ConnectionRow, type PostGroupRow, type PostItemRow, type MediaRef } from '@/lib/db';
 import { getValidToken, refreshConnectionToken } from '@/lib/auth/token-manager';
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type MediaAttachment, type RateLimitInfo } from '@/lib/adapters/types';
@@ -30,9 +30,10 @@ export const publishPost = inngest.createFunction(
       const db = getServiceDb();
       const { data: item, error } = await db
         .from('post_items')
-        .select('*')
+        .select(`${POST_ITEM_ROW_COLUMNS}, post_groups!inner(workspace_id)`)
+        .eq('post_groups.workspace_id', workspaceId)
         .eq('id', postItemId)
-        .maybeSingle<PostItemRow>();
+        .maybeSingle<PostItemRow & { post_groups: { workspace_id: string } }>();
       if (error) throw new Error(`[publish-post] item load failed: ${error.message}`);
       if (!item) throw new NonRetriableError(`post_item ${postItemId} not found`);
 
@@ -58,7 +59,8 @@ export const publishPost = inngest.createFunction(
 
       const { data: connection, error: connError } = await db
         .from('platform_connections')
-        .select('*')
+        .select(CONNECTION_ROW_COLUMNS)
+        .eq('workspace_id', workspaceId)
         .eq('id', item.connection_id)
         .single<ConnectionRow>();
       if (connError || !connection) {
@@ -111,7 +113,7 @@ export const publishPost = inngest.createFunction(
 
     // 2. Publish (attempt 1, with in-step AUTH_EXPIRED refresh+retry).
     let attempt = await step.run('publish-to-platform', () =>
-      publishAttempt(prepared.item, prepared.group, prepared.connection)
+      publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
     );
 
     // RATE_LIMITED from the platform: sleep until reset, then ONE more try.
@@ -121,7 +123,7 @@ export const publishPost = inngest.createFunction(
         : new Date(Date.now() + 15 * 60 * 1000);
       await step.sleepUntil('wait-for-rate-limit-reset', retryAt);
       attempt = await step.run('publish-after-rate-limit', () =>
-        publishAttempt(prepared.item, prepared.group, prepared.connection)
+        publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
       );
       if (attempt.outcome === 'rate_limited') {
         attempt = {
@@ -169,6 +171,7 @@ export const publishPost = inngest.createFunction(
         const { error: rlError } = await db
           .from('platform_connections')
           .update({ rate_limit_state: attempt.rateLimit, last_used_at: new Date().toISOString() })
+          .eq('workspace_id', workspaceId)
           .eq('id', prepared.connection.id);
         if (rlError) {
           console.error('[publish-post] rate limit state write failed:', rlError.message);
@@ -201,7 +204,7 @@ export const publishPost = inngest.createFunction(
     if (prepared.group.first_comment) {
       await step.sendEvent('send-first-comment', {
         name: 'post/first-comment',
-        data: { postItemId: prepared.item.id, comment: prepared.group.first_comment },
+        data: { postItemId: prepared.item.id, workspaceId, comment: prepared.group.first_comment },
       });
     }
 
@@ -209,7 +212,7 @@ export const publishPost = inngest.createFunction(
     await step.sleep('wait-before-first-metrics', '1h');
     await step.sendEvent('collect-first-metrics', {
       name: 'metrics/collect',
-      data: { postItemId: prepared.item.id },
+      data: { postItemId: prepared.item.id, workspaceId },
     });
 
     return { published: true, platformPostId: attempt.platformPostId };
@@ -224,7 +227,8 @@ export const publishPost = inngest.createFunction(
 async function publishAttempt(
   item: PostItemRow,
   group: PostGroupRow,
-  connection: ConnectionRow
+  connection: ConnectionRow,
+  workspaceId: string
 ): Promise<PublishAttemptResult> {
   const adapter = createAdapter(connection.platform);
 
@@ -245,7 +249,7 @@ async function publishAttempt(
   }
 
   const publishOnce = async (): Promise<PublishAttemptResult> => {
-    const { token } = await getValidToken(connection.id);
+    const { token } = await getValidToken(connection.id, workspaceId);
     const result = await adapter.publish(
       {
         content: item.resolved_content ?? item.adapted_content ?? group.original_content,
@@ -272,7 +276,7 @@ async function publishAttempt(
       case 'AUTH_EXPIRED': {
         // Token died mid-flight: force refresh (advisory-locked), retry once.
         try {
-          await refreshConnectionToken(connection.id, true);
+          await refreshConnectionToken(connection.id, workspaceId, true);
           return await publishOnce();
         } catch (retryError) {
           const message =
@@ -355,23 +359,24 @@ export const publishFirstComment = inngest.createFunction(
   { event: 'post/first-comment' },
   async ({ event, step }) => {
     // Give the platform time to fully materialize the post first.
-    await step.sleep('wait-for-platform', '30s');
+    await step.sleep('wait-for-platform', '30m');
 
     return step.run('post-comment', async () => {
-      const { postItemId, comment } = event.data;
+      const { postItemId, workspaceId, comment } = event.data;
       const db = getServiceDb();
 
       const { data: item, error } = await db
         .from('post_items')
-        .select('*')
+        .select(`${POST_ITEM_ROW_COLUMNS}, post_groups!inner(workspace_id)`)
+        .eq('post_groups.workspace_id', workspaceId)
         .eq('id', postItemId)
-        .maybeSingle<PostItemRow>();
+        .maybeSingle<PostItemRow & { post_groups: { workspace_id: string } }>();
       if (error) throw new Error(`[first-comment] item load failed: ${error.message}`);
       if (!item || item.status !== 'published' || !item.platform_post_id) {
         return { commented: false, reason: 'item is not published' };
       }
 
-      const { token, connection } = await getValidToken(item.connection_id);
+      const { token, connection } = await getValidToken(item.connection_id, workspaceId);
       const adapter = createAdapter(connection.platform);
       try {
         await adapter.postComment(

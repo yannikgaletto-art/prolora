@@ -5,7 +5,7 @@
 
 // --- Platform Types ---
 
-export type PlatformType = 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram';
+export type PlatformType = 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram' | 'discord' | 'devto' | 'hashnode';
 
 export type PlatformPhase2 = 'instagram' | 'facebook' | 'threads' | 'tiktok' | 'youtube';
 
@@ -444,6 +444,7 @@ export const CREDIT_COSTS = {
   template_draft: 1,
   template_prefill: 1,
   pillar_splinter: 3,
+  impact_score: 1,
 } as const;
 
 // --- Splinter Engine (GOAL-RUN6 §12 — Owned-Media-Flywheel) ---
@@ -511,7 +512,14 @@ export type CtaMechanic =
   | 'dm_invite'
   | 'none';
 
-export type StylePreset = 'neutral' | 'hormozi_carousel' | 'ai_automation_screencast' | 'doku_modus';
+export type StylePreset =
+  | 'neutral'
+  | 'hormozi_carousel'
+  | 'ai_automation_screencast'
+  | 'doku_modus'
+  | 'welsh_short'
+  | 'koe_pia'
+  | 'abdaal_evidence';
 
 export type TemplateFormat = 'text' | 'thread' | 'carousel_pdf' | 'image_text' | 'poll';
 

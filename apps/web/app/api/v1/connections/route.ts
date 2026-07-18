@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError } from '@/lib/api/http';
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import { toConnectionDto } from '@/lib/auth/connections';
 
 // GET /api/v1/connections — all connections for the workspace.
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const { data, error } = await db
       .from('platform_connections')
-      .select('*')
+      .select(CONNECTION_ROW_COLUMNS)
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: true })
       .returns<ConnectionRow[]>();

@@ -1,10 +1,11 @@
 import { createHmac, randomUUID } from 'crypto';
 import { inngest } from '../client';
-import { getServiceDb, type PostItemRow, type WebhookRow } from '@/lib/db';
+import { POST_ITEM_ROW_COLUMNS, getServiceDb, type PostItemRow, type WebhookRow } from '@/lib/db';
 import { getValidToken } from '@/lib/auth/token-manager';
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError } from '@/lib/adapters/types';
 import { decrypt } from '@/lib/auth/encryption';
+import { reconcileImpact } from '@/lib/scoring/reconcile';
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const WEBHOOK_DISABLE_AFTER_FAILURES = 10;
@@ -17,22 +18,23 @@ export const collectMetrics = inngest.createFunction(
   },
   { event: 'metrics/collect' },
   async ({ event, step }) => {
-    return step.run('fetch-platform-metrics', async () => {
-      const { postItemId } = event.data;
+    const collection = await step.run('fetch-platform-metrics', async () => {
+      const { postItemId, workspaceId } = event.data;
       const db = getServiceDb();
 
       const { data: item, error } = await db
         .from('post_items')
-        .select('*')
+        .select(`${POST_ITEM_ROW_COLUMNS}, post_groups!inner(workspace_id)`)
+        .eq('post_groups.workspace_id', workspaceId)
         .eq('id', postItemId)
-        .maybeSingle<PostItemRow>();
+        .maybeSingle<PostItemRow & { post_groups: { workspace_id: string } }>();
       if (error) throw new Error(`[collect-metrics] item load failed: ${error.message}`);
       if (!item || item.status !== 'published' || !item.platform_post_id) {
         return { collected: false, reason: 'item is not published' };
       }
 
       try {
-        const { token, connection } = await getValidToken(item.connection_id);
+        const { token, connection } = await getValidToken(item.connection_id, workspaceId);
         const adapter = createAdapter(connection.platform);
         const metrics = await adapter.getPostMetrics(item.platform_post_id, token);
 
@@ -62,6 +64,21 @@ export const collectMetrics = inngest.createFunction(
         throw metricsError;
       }
     });
+
+    if (collection.collected) {
+      await step.run('reconcile-impact', async () => {
+        try {
+          return await reconcileImpact({
+            workspaceId: event.data.workspaceId,
+            postItemId: event.data.postItemId,
+          });
+        } catch (error) {
+          console.error('[impact] reconcile failed:', error);
+          return { reconciled: false, reason: 'reconciliation failed' };
+        }
+      });
+    }
+    return collection;
   }
 );
 
@@ -78,19 +95,19 @@ export const scheduledMetricsCollection = inngest.createFunction(
 
       const { data, error } = await db
         .from('post_items')
-        .select('id')
+        .select('id, post_groups!inner(workspace_id)')
         .eq('status', 'published')
         .gte('published_at', cutoff)
         .limit(500)
-        .returns<Array<Pick<PostItemRow, 'id'>>>();
+        .returns<Array<Pick<PostItemRow, 'id'> & { post_groups: { workspace_id: string } }>>();
       if (error) throw new Error(`[scheduled-metrics] query failed: ${error.message}`);
-      return (data ?? []).map((row) => row.id);
+      return (data ?? []).map((row) => ({ postItemId: row.id, workspaceId: row.post_groups.workspace_id }));
     });
 
     if (items.length > 0) {
       await step.sendEvent(
         'fan-out-metrics',
-        items.map((postItemId) => ({ name: 'metrics/collect' as const, data: { postItemId } }))
+        items.map((item) => ({ name: 'metrics/collect' as const, data: item }))
       );
     }
     return { scheduled: items.length };

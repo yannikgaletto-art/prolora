@@ -4,7 +4,7 @@
 // already-completed generation is never submitted again.
 import { inngest } from '@/lib/inngest/client';
 import { getServiceDb, type MediaGenerationRow } from '@/lib/db';
-import { MEDIA_BUCKET } from '@/lib/media/transform';
+import { ensureMediaBucket, MEDIA_BUCKET } from '@/lib/media/transform';
 import { commitReservation, releaseReservation } from '@/lib/media/generation';
 
 const IMAGE_SIZES: Record<MediaGenerationRow['format'], string> = {
@@ -207,6 +207,7 @@ async function storeResult(
   mimeType: 'image/png' | 'video/mp4'
 ): Promise<void> {
   if (bytes.length === 0) throw new TerminalGenerationError('Empty media payload.');
+  await ensureMediaBucket();
   const db = getServiceDb();
   const extension = mimeType === 'image/png' ? 'png' : 'mp4';
   const key = `workspaces/${row.workspace_id}/media/${row.id}/original.${extension}`;

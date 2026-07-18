@@ -53,3 +53,19 @@ export async function assertCreditQuota(workspaceId: string, cost: number): Prom
     );
   }
 }
+
+export async function recordCreditUsage(input: {
+  workspaceId: string;
+  action: string;
+  creditsUsed: number;
+  metadata: Record<string, unknown>;
+}): Promise<string | null> {
+  const db = getServiceDb();
+  const { error } = await db.from('usage_logs').insert({
+    workspace_id: input.workspaceId,
+    action: input.action,
+    credits_used: input.creditsUsed,
+    metadata: input.metadata,
+  });
+  return error?.message ?? null;
+}

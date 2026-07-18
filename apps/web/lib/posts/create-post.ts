@@ -5,7 +5,7 @@ import type {
   PostItemStatus,
 } from '@prolora/shared';
 import { PLAN_LIMITS, type PlanType } from '@prolora/shared';
-import { getServiceDb, type ConnectionRow, type MediaRef, type PostItemRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, POST_ITEM_ROW_COLUMNS, getServiceDb, type ConnectionRow, type MediaRef, type PostItemRow } from '@/lib/db';
 import { ingestMedia } from '@/lib/media/transform';
 import { adaptContentForPlatforms, type PlatformTarget } from '@/lib/ai/adapt-content';
 import { validateForPlatform, validateScheduledAt } from '@/lib/validation/pipeline';
@@ -13,6 +13,8 @@ import { getPlatformRules } from '@/lib/validation/platform-rules';
 import { inngest } from '@/lib/inngest/client';
 import { ApiError } from '@/lib/api/http';
 import { resolveConnectionPayload } from './resolve-payload';
+import { hashScoredContent } from '@/lib/scoring/content-hash';
+import { linkLatestPrediction } from '@/lib/scoring/prediction-store';
 
 export interface CreatePostResult {
   response: CreatePostResponse;
@@ -170,13 +172,27 @@ export async function createPost(
   // Read-back (Double Assurance): every platform row must exist.
   const { data: items, error: readBackError } = await db
     .from('post_items')
-    .select('*')
+    .select(POST_ITEM_ROW_COLUMNS)
     .eq('post_group_id', group.id)
     .returns<PostItemRow[]>();
   if (readBackError || !items || items.length !== connections.length) {
     throw new Error(
       `[create-post] write verification failed: expected ${connections.length} items, got ${items?.length ?? 0}`
     );
+  }
+
+  for (const item of items) {
+    try {
+      await linkLatestPrediction({
+        workspaceId,
+        platform: item.platform,
+        contentHash: hashScoredContent(item.resolved_content ?? request.content),
+        postGroupId: group.id,
+        postItemId: item.id,
+      });
+    } catch (predictionError) {
+      console.error('[impact] prediction stamp failed:', predictionError);
+    }
   }
 
   // Usage log (post creation is quota-relevant).
@@ -226,7 +242,7 @@ async function loadConnections(
   const unique = [...new Set(connectionIds)];
   const { data, error } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
     .eq('workspace_id', workspaceId)
     .in('id', unique)
     .returns<ConnectionRow[]>();

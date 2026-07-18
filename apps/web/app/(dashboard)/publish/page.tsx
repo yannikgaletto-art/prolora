@@ -7,6 +7,7 @@ import { getDict } from '@/lib/i18n';
 import { getLocale } from '@/lib/i18n/server';
 import { PublishTabs } from './PublishTabs';
 import { PostComposer } from './PostComposer';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 export const metadata: Metadata = { title: 'Publish — Prolora' };
 
@@ -17,9 +18,10 @@ export default async function PublishPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/login');
 
-  const [connections, locale] = await Promise.all([
+  const [connections, locale, systemStatus] = await Promise.all([
     getConnectionsWithCharacterLimits(workspace.id),
     getLocale(),
+    getSystemStatus(workspace.id),
   ]);
   const dict = getDict(locale);
 
@@ -34,6 +36,8 @@ export default async function PublishPage() {
       <PublishTabs active="compose" />
       <PostComposer
         connections={connections}
+        locale={locale}
+        mediaFeature={systemStatus.features.media_generation}
         wizardStrings={{
           entryButton: dict.entry_button,
           entryPromise: dict.entry_promise,

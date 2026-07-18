@@ -27,11 +27,13 @@ import { stepTransition } from '@/app/components/motion';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { ConnectionWithLimit } from '@/lib/connections/list-connections';
 import { APP_LOCALES, LOCALE_COOKIE, fill, type WizardDict } from '@/lib/i18n';
-import { INTENT_INFO, anlaesseForGoal, stepPlanFor, templatesFor } from '@/lib/templates/guide';
+import { stepPlanFor, templatesFor } from '@/lib/templates/guide';
+import { localizedAnlaesseForGoal, localizedIntentInfo } from '@/lib/templates/localization';
 import { PLATFORM_META } from '../platform-meta';
 import { storeAppliedTemplate } from '../handoff';
 import { SlotField } from './SlotField';
 import { useSpeechInput } from './useSpeechInput';
+import type { FeatureState } from '@/lib/system/doctor';
 import {
   buildQuery,
   parseWizardState,
@@ -68,6 +70,9 @@ export interface TemplateGuideProps {
   connections: ConnectionWithLimit[];
   contextAvailable: boolean;
   aiEnabled: boolean;
+  aiFeature: FeatureState;
+  creditsLimit: number;
+  creditsUsed: number;
   workspaceId: string;
   locale: AppLocale;
   dict: WizardDict;
@@ -78,6 +83,9 @@ export function TemplateGuide({
   connections,
   contextAvailable,
   aiEnabled,
+  aiFeature,
+  creditsLimit,
+  creditsUsed,
   workspaceId,
   locale,
   dict,
@@ -583,8 +591,6 @@ export function TemplateGuide({
         </div>
       </div>
 
-      {locale !== 'de' && <p className="text-xs text-gray-500">{dict.language_content_note}</p>}
-
       <p aria-live="polite" className="sr-only">
         {fill(dict.step_of, { current: state.step, total: 4 })} — {stepTitle}
       </p>
@@ -626,7 +632,7 @@ export function TemplateGuide({
           {/* Step 1: Ziel */}
           {!showPreview && state.step === 1 && (
             <div className="flex flex-col gap-3">
-              {INTENT_INFO.filter((info) => templatesFor(templates, info.key).length > 0).map(
+              {localizedIntentInfo(locale).filter((info) => templatesFor(templates, info.key).length > 0).map(
                 (info) => (
                   <ChoiceCard
                     key={info.key}
@@ -660,7 +666,7 @@ export function TemplateGuide({
           {/* Step 2: Anlass */}
           {!showPreview && state.step === 2 && state.goal && (
             <div className="flex flex-col gap-3">
-              {anlaesseForGoal(templates, state.goal).map((anlass) => (
+              {localizedAnlaesseForGoal(templates, state.goal, locale).map((anlass) => (
                 <ChoiceCard
                   key={anlass.key}
                   title={anlass.label}
@@ -852,8 +858,18 @@ export function TemplateGuide({
                 </Button>
               </div>
               {!aiEnabled && (
-                <p className="text-right text-xs text-gray-500">{dict.ai_disabled_reason}</p>
+                <div className="text-right text-xs text-amber-700" role="status">
+                  <p>{aiFeature.hint ?? dict.ai_disabled_reason}</p>
+                  {aiFeature.missing && (
+                    <p className="mt-1 font-mono">{aiFeature.missing.join(' · ')}</p>
+                  )}
+                </div>
               )}
+              <p className="text-right text-xs text-gray-500">
+                {Number.isFinite(creditsLimit)
+                  ? `${Math.max(0, creditsLimit - creditsUsed)} / ${creditsLimit} AI credits remaining this month`
+                  : 'Unlimited AI credits'}
+              </p>
             </div>
           )}
 

@@ -5,6 +5,9 @@ import { XAdapter } from './x-adapter';
 import { BlueskyAdapter } from './bluesky-adapter';
 import { MastodonAdapter } from './mastodon-adapter';
 import { TelegramAdapter } from './telegram-adapter';
+import { DiscordAdapter } from './discord-adapter';
+import { DevtoAdapter } from './devto-adapter';
+import { HashnodeAdapter } from './hashnode-adapter';
 
 const adapters: Record<PlatformType, () => PlatformAdapter> = {
   linkedin: () => new LinkedInAdapter(),
@@ -12,6 +15,9 @@ const adapters: Record<PlatformType, () => PlatformAdapter> = {
   bluesky: () => new BlueskyAdapter(),
   mastodon: () => new MastodonAdapter(),
   telegram: () => new TelegramAdapter(),
+  discord: () => new DiscordAdapter(),
+  devto: () => new DevtoAdapter(),
+  hashnode: () => new HashnodeAdapter(),
 };
 
 export function createAdapter(platform: PlatformType): PlatformAdapter {

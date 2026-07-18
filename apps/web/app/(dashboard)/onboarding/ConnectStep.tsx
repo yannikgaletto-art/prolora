@@ -31,6 +31,9 @@ const PLATFORM_META: Record<PlatformType, { label: string; initial: string; colo
   bluesky: { label: 'Bluesky', initial: 'B', color: '#1185FE' },
   mastodon: { label: 'Mastodon', initial: 'M', color: '#6364FF' },
   telegram: { label: 'Telegram', initial: 'T', color: '#26A5E4' },
+  discord: { label: 'Discord', initial: 'D', color: '#5865F2' },
+  devto: { label: 'Dev.to', initial: 'DEV', color: '#0A0A0A' },
+  hashnode: { label: 'Hashnode', initial: 'H', color: '#2962FF' },
 };
 
 const ALL_PLATFORMS: PlatformType[] = ['linkedin', 'x', 'bluesky', 'mastodon', 'telegram'];

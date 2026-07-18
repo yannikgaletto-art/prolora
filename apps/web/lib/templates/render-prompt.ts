@@ -24,7 +24,28 @@ export const STYLE_PRESET_RULES: Record<StylePreset, string> = {
   doku_modus:
     'Documentation mode ("look over my shoulder"): unfiltered, small, concrete. 3-6 sentences, no ' +
     'marketing sentence patterns, numbers and rough edges stay in. No hard CTA — authenticity is the mechanic.',
+  welsh_short:
+    'Short-and-whitespace mechanic: maximum 1-2 lines per sentence/paragraph. Open with a relatable enemy ' +
+    'or familiar frustration, sharpen the tension with a short cliffhanger before the fold, then deliver one ' +
+    'clear lesson. Never place a link in the post body; put it in the first comment when needed.',
+  koe_pia:
+    'PIA essay mechanic: structure the post as Pain → Insight → Action. Make the pain concrete, use an ' +
+    'anti-vision to show what continues if nothing changes, reveal a non-obvious insight, then end with one ' +
+    'specific action. Transitions must make the causal chain explicit; avoid a contrast-free sales pitch.',
+  abdaal_evidence:
+    'Evidence-story mechanic: begin with a concrete "How I…" transformation, show the starting state and ' +
+    'measurable result, then explain the repeatable steps and supporting evidence. Separate observation from ' +
+    'claim and name limitations; evidence beats inspirational assertion.',
 };
+
+export function resolveTemplateStyle(
+  templateStyle: StylePreset,
+  workspaceStyle: StylePreset | null | undefined
+): StylePreset {
+  return templateStyle === 'neutral' && workspaceStyle && workspaceStyle !== 'neutral'
+    ? workspaceStyle
+    : templateStyle;
+}
 
 const PSYCH_LEVEL_RULES: Record<PsychLevel, string> = {
   rational:
@@ -60,6 +81,12 @@ export const PLATFORM_NOTES: Record<PlatformType, string> = {
     'Telegram (intensity: direct): push channel without a feed algorithm — subscribers see everything, ' +
     'completeness beats hooks. Long form is fine. Links go directly into the post. Direct CTAs are acceptable; ' +
     'exclusivity ("Telegram-only") is the reason people subscribe.',
+  discord:
+    'Discord (intensity: reduced): concise community-native update, conversational tone, no mass mentions or broadcast spam.',
+  devto:
+    'Dev.to (long-form): first line is the article title, followed by useful Markdown with concrete examples for developers.',
+  hashnode:
+    'Hashnode (long-form): first line is the article title, followed by a technically rigorous Markdown article for practitioners.',
 };
 
 function ctaInstruction(
@@ -145,6 +172,7 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
 
   const language = context?.voice_language?.trim() || 'de';
   const tone = context?.voice_tone?.trim() || 'casual';
+  const effectiveStyle = resolveTemplateStyle(template.style_preset, context?.creator_style);
 
   const wantsSlides =
     template.format === 'carousel_pdf' || template.style_preset === 'ai_automation_screencast';
@@ -154,7 +182,7 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     'template. Return the result ONLY via the template_draft tool.',
     '',
     `Output language: ${language}. Workspace voice tone: ${tone}.`,
-    `Style preset: ${STYLE_PRESET_RULES[template.style_preset]}`,
+    `Style preset: ${STYLE_PRESET_RULES[effectiveStyle]}`,
     '',
     'Psychological angle (primary first):',
     ...template.psych_levels.map((level) => `- ${PSYCH_LEVEL_RULES[level]}`),

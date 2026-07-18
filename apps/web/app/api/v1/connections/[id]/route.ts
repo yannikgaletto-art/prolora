@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError } from '@/lib/api/http';
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import { toConnectionDto } from '@/lib/auth/connections';
 
 // DELETE /api/v1/connections/[id] — disconnect. Soft-deactivate only: sets
@@ -30,7 +30,7 @@ export async function DELETE(
       .update({ status: 'revoked' })
       .eq('id', id)
       .eq('workspace_id', workspaceId)
-      .select('*')
+      .select(CONNECTION_ROW_COLUMNS)
       .maybeSingle<ConnectionRow>();
 
     if (error) {

@@ -8,6 +8,7 @@ const TABS = [
   { id: 'api-keys', label: 'API Keys' },
   { id: 'webhooks', label: 'Webhooks' },
   { id: 'plan', label: 'Plan' },
+  { id: 'system', label: 'System Status' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -17,12 +18,13 @@ export interface SettingsTabsProps {
   apiKeysTab: ReactNode;
   webhooksTab: ReactNode;
   planTab: ReactNode;
+  systemTab: ReactNode;
 }
 
 // Plain buttons + state — no routing, no external tab library. Each tab's
 // content is a pre-rendered node (some server-rendered, some client islands)
 // passed in from the Server Component page; switching only shows/hides it.
-export function SettingsTabs({ workspaceTab, apiKeysTab, webhooksTab, planTab }: SettingsTabsProps) {
+export function SettingsTabs({ workspaceTab, apiKeysTab, webhooksTab, planTab, systemTab }: SettingsTabsProps) {
   const [active, setActive] = useState<TabId>('workspace');
 
   const content: Record<TabId, ReactNode> = {
@@ -30,6 +32,7 @@ export function SettingsTabs({ workspaceTab, apiKeysTab, webhooksTab, planTab }:
     'api-keys': apiKeysTab,
     webhooks: webhooksTab,
     plan: planTab,
+    system: systemTab,
   };
 
   return (

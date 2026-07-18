@@ -7,6 +7,7 @@ import { Card } from '@/app/components/Card';
 import { Badge } from '@/app/components/Badge';
 import { EmptyState } from '@/app/components/EmptyState';
 import { AddCommunitiesButton } from './AddCommunitiesButton';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 export const metadata: Metadata = { title: 'Discover — Prolora' };
 
@@ -21,7 +22,11 @@ export default async function DiscoverPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
-  const communities = await getCommunities(workspace.id);
+  const [communities, systemStatus] = await Promise.all([
+    getCommunities(workspace.id),
+    getSystemStatus(workspace.id),
+  ]);
+  const discoveryState = systemStatus.features.discovery;
 
   return (
     <div className="space-y-6">
@@ -33,14 +38,14 @@ export default async function DiscoverPage() {
             them on its own schedule — new opportunities show up under Opportunities.
           </p>
         </div>
-        {communities.length > 0 && <AddCommunitiesButton />}
+        {communities.length > 0 && <AddCommunitiesButton featureState={discoveryState} />}
       </div>
 
       {communities.length === 0 ? (
         <EmptyState
           title="No communities mapped yet"
           description="Describe your product and target audience to find relevant communities and their posting rules."
-          action={<AddCommunitiesButton />}
+          action={<AddCommunitiesButton featureState={discoveryState} />}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -11,7 +11,7 @@ const BLUESKY_MAX_BYTES = 950_000; // stay under the 1MB blob limit
 
 let bucketEnsured = false;
 
-async function ensureBucket(): Promise<void> {
+export async function ensureMediaBucket(): Promise<void> {
   if (bucketEnsured) return;
   const db = getServiceDb();
   const { error } = await db.storage.createBucket(MEDIA_BUCKET, { public: false });
@@ -26,7 +26,7 @@ async function ensureBucket(): Promise<void> {
 // PRIVATE bucket under an obfuscated path. post_groups.media stores the
 // storage KEY — never a URL (Invariante 6 / R2).
 export async function ingestMedia(workspaceId: string, items: MediaItem[]): Promise<MediaRef[]> {
-  await ensureBucket();
+  await ensureMediaBucket();
   const db = getServiceDb();
   const refs: MediaRef[] = [];
 

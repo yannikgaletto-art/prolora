@@ -1,5 +1,30 @@
 import { z } from 'zod';
 
+export const platformTypeSchema = z.enum([
+  'linkedin',
+  'x',
+  'bluesky',
+  'mastodon',
+  'telegram',
+  'discord',
+  'devto',
+  'hashnode',
+]);
+
+export const creatorStyleSchema = z.enum([
+  'neutral',
+  'hormozi_carousel',
+  'ai_automation_screencast',
+  'doku_modus',
+  'welsh_short',
+  'koe_pia',
+  'abdaal_evidence',
+]);
+
+export const updateCreatorStyleSchema = z.object({
+  creator_style: creatorStyleSchema,
+});
+
 export const createPostSchema = z.object({
   content: z.string().min(1, 'Content is required').max(10000),
   platforms: z.array(z.string().uuid()).min(1, 'At least one platform required'),
@@ -7,6 +32,7 @@ export const createPostSchema = z.object({
     type: z.enum(['image', 'video', 'document']),
     url: z.string().min(1),
     alt_text: z.string().optional(),
+    mime_type: z.string().optional(),
   })).optional(),
   platform_overrides: z.record(z.string(), z.object({
     content: z.string().optional(),
@@ -103,4 +129,12 @@ export const templateDraftSchema = z.object({
     .max(5),
   mode: z.enum(['scaffold', 'ai']).default('ai'),
   workspace_id: z.string().uuid().optional(),
+});
+
+export const scorePostSchema = z.object({
+  content: z.string().min(1).max(30_000),
+  platform: platformTypeSchema,
+  first_comment: z.string().max(2_000).optional(),
+  language: z.string().length(2).optional(),
+  connection_id: z.string().uuid().optional(),
 });

@@ -5,6 +5,7 @@ import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getServiceDb, type ConnectionRow } from '@/lib/db';
 import { PublishTabs } from '../PublishTabs';
 import { HubView, type HubConnection } from './HubView';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 export const metadata: Metadata = { title: 'Content Hub — Prolora' };
 
@@ -17,6 +18,7 @@ export default async function ContentHubPage() {
   if (!workspace) redirect('/login');
 
   const db = getServiceDb();
+  const systemStatus = await getSystemStatus(workspace.id);
   const { data } = await db
     .from('platform_connections')
     .select('id, platform, account_name, status')
@@ -39,7 +41,7 @@ export default async function ContentHubPage() {
         </p>
       </div>
       <PublishTabs active="hub" />
-      <HubView connections={connections} />
+      <HubView connections={connections} aiState={systemStatus.features.ai_drafts} />
     </div>
   );
 }

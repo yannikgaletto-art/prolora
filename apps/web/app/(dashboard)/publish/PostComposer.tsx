@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { FormEvent } from 'react';
-import type { CreatePostRequest, CreatePostResponse } from '@prolora/shared';
+import type { AppLocale, CreatePostRequest, CreatePostResponse, MediaItem } from '@prolora/shared';
 import { Button } from '@/app/components/Button';
 import { Card } from '@/app/components/Card';
 import { Textarea } from '@/app/components/Input';
@@ -14,6 +14,13 @@ import type { ConnectionWithLimit } from '@/lib/connections/list-connections';
 import { PLATFORM_META } from './platform-meta';
 import { takeAppliedTemplate, type AppliedTemplate } from './handoff';
 import { buildConnectionOverrides } from './composer-overrides';
+import { useSpeechInput } from './templates/useSpeechInput';
+import { MediaCard } from './MediaCard';
+import { PostPreview } from './PostPreview';
+import { unicodeBold } from './post-preview';
+import type { FeatureState } from '@/lib/system/doctor';
+import { getRun7Dict } from '@/lib/i18n/run7';
+import { ImpactPredictionCard } from './ImpactPredictionCard';
 
 /** Wizard chrome strings the server page resolves via lib/i18n (GOAL-RUN5). */
 export interface ComposerWizardStrings {
@@ -32,18 +39,38 @@ function toLocalInputValue(date: Date): string {
   )}:${pad(date.getMinutes())}`;
 }
 
+function toZonedInputValue(instant: string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(instant));
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
+
 export function PostComposer({
   connections,
   wizardStrings,
+  locale,
+  mediaFeature,
 }: {
   connections: ConnectionWithLimit[];
   wizardStrings: ComposerWizardStrings;
+  locale: AppLocale;
+  mediaFeature: FeatureState;
 }) {
+  const speech = useSpeechInput(locale);
+  const run7 = getRun7Dict(locale);
   const [content, setContent] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adaptContent, setAdaptContent] = useState(false);
   const [scheduleMode, setScheduleMode] = useState<'now' | 'schedule'>('now');
   const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledTimezone, setScheduledTimezone] = useState('');
+  const [queuedSlot, setQueuedSlot] = useState<{ localValue: string; instant: string } | null>(null);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [scheduleHint, setScheduleHint] = useState<string | null>(null);
   const [showFirstComment, setShowFirstComment] = useState(false);
   const [firstComment, setFirstComment] = useState('');
   const [contentByConnection, setContentByConnection] = useState<Record<string, string>>({});
@@ -51,6 +78,8 @@ export function PostComposer({
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [attachedMedia, setAttachedMedia] = useState<Array<{ item: MediaItem; previewUrl: string | null }>>([]);
+  const [unicodeBoldEnabled, setUnicodeBoldEnabled] = useState(false);
 
   const hasConnections = connections.length > 0;
 
@@ -84,10 +113,15 @@ export function PostComposer({
     setAdaptContent(false);
     setScheduleMode('now');
     setScheduledAt('');
+    setScheduledTimezone('');
+    setQueuedSlot(null);
+    setScheduleHint(null);
     setShowFirstComment(false);
     setFirstComment('');
     setContentByConnection({});
     setTemplateExtras(null);
+    setAttachedMedia([]);
+    setUnicodeBoldEnabled(false);
   }
 
   // A template draft lands as normal, editable composer state — the existing
@@ -139,7 +173,9 @@ export function PostComposer({
         setFormError('Choose a date and time to schedule for.');
         return;
       }
-      const scheduledDate = new Date(scheduledAt);
+      const scheduledDate = new Date(
+        queuedSlot?.localValue === scheduledAt ? queuedSlot.instant : scheduledAt
+      );
       if (Number.isNaN(scheduledDate.getTime())) {
         setFormError('That schedule date is not valid.');
         return;
@@ -155,19 +191,27 @@ export function PostComposer({
       scheduledAtIso = scheduledDate.toISOString();
     }
 
+    const effectiveContent = unicodeBoldEnabled ? unicodeBold(content) : content;
+    const effectiveOverrides = unicodeBoldEnabled
+      ? Object.fromEntries(Object.entries(contentByConnection).map(([id, value]) => [id, unicodeBold(value)]))
+      : contentByConnection;
     const connectionOverrides = buildConnectionOverrides({
-      masterContent: content,
+      masterContent: effectiveContent,
       selectedConnectionIds: selected,
-      contentByConnection,
+      contentByConnection: effectiveOverrides,
     });
     const payload: CreatePostRequest = {
-      content,
+      content: effectiveContent,
       platforms: [...selected],
       connection_overrides:
         Object.keys(connectionOverrides).length > 0 ? connectionOverrides : undefined,
       adapt_content: adaptContent || undefined,
       scheduled_at: scheduledAtIso,
+      scheduled_tz: scheduledAtIso
+        ? scheduledTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined,
       first_comment: showFirstComment && firstComment.trim() ? firstComment.trim() : undefined,
+      media: attachedMedia.length > 0 ? attachedMedia.map(({ item }) => item) : undefined,
     };
 
     setSubmitting(true);
@@ -196,6 +240,62 @@ export function PostComposer({
     }
   }
 
+  async function addToQueue() {
+    if (selected.size === 0) {
+      setScheduleHint('Select at least one connected account first.');
+      return;
+    }
+    setQueueLoading(true);
+    setScheduleHint(null);
+    try {
+      const { slot } = await fetchApi<{ slot: { instant: string; timezone: string } | null }>(
+        '/v1/posting-schedules/next',
+        { method: 'POST', body: JSON.stringify({ connection_ids: [...selected] }) }
+      );
+      if (!slot) {
+        setScheduleHint('No active queue slots yet — build a weekly plan below.');
+        return;
+      }
+      setScheduleMode('schedule');
+      const localValue = toZonedInputValue(slot.instant, slot.timezone);
+      setScheduledAt(localValue);
+      setScheduledTimezone(slot.timezone);
+      setQueuedSlot({ localValue, instant: slot.instant });
+      setScheduleHint(`Next free slot · ${slot.timezone}`);
+    } catch (error) {
+      setScheduleHint(errorMessage(error));
+    } finally {
+      setQueueLoading(false);
+    }
+  }
+
+  async function buildPostingPlan(frequency: 1 | 3 | 5) {
+    const connectionId = [...selected][0];
+    if (!connectionId) {
+      setScheduleHint('Select an account before building its plan.');
+      return;
+    }
+    setQueueLoading(true);
+    setScheduleHint(null);
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const plan = await fetchApi<{ source: 'metrics' | 'fallback'; warning: string | null }>(
+        '/v1/posting-schedules/seed',
+        {
+          method: 'POST',
+          body: JSON.stringify({ connection_id: connectionId, frequency, timezone }),
+        }
+      );
+      setScheduleHint(
+        `${frequency} slot${frequency === 1 ? '' : 's'}/week created from ${plan.source === 'metrics' ? 'your best times' : 'neutral business times'}.${plan.warning ? ` ${plan.warning}` : ''}`
+      );
+    } catch (error) {
+      setScheduleHint(errorMessage(error));
+    } finally {
+      setQueueLoading(false);
+    }
+  }
+
   return (
     <>
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
@@ -220,6 +320,27 @@ export function PostComposer({
               onChange={(event) => setContent(event.target.value)}
               placeholder="What do you want to share?"
             />
+            {speech.supported && !speech.blocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (speech.activeKey === 'composer') {
+                    speech.stop();
+                    return;
+                  }
+                  speech.start('composer', (text) => setContent((current) => current.trim() ? `${current.trimEnd()} ${text}` : text));
+                }}
+                className={`self-start rounded-md px-2.5 py-1.5 text-xs font-medium ${speech.activeKey === 'composer' ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                aria-pressed={speech.activeKey === 'composer'}
+              >
+                {speech.activeKey === 'composer' ? run7.composer.stopDictation : `🎙 ${run7.composer.dictate}`}
+              </button>
+            )}
+            {speech.transientError && (
+              <p className="text-xs text-amber-700" role="status">
+                {speech.transientError === 'network' ? run7.composer.speechNetwork : run7.composer.noSpeech}
+              </p>
+            )}
             <div className="flex items-center justify-between text-xs">
               <span className={overLimit ? 'font-medium text-red-600' : 'text-gray-500'}>
                 {content.length}
@@ -233,6 +354,17 @@ export function PostComposer({
             </div>
           </div>
         </Card>
+
+        <ImpactPredictionCard
+          connections={connections}
+          selected={selected}
+          content={content}
+          setContent={setContent}
+          firstComment={firstComment}
+          setFirstComment={setFirstComment}
+          setShowFirstComment={setShowFirstComment}
+          locale={locale}
+        />
 
         {templateExtras && (
           <Card
@@ -286,6 +418,25 @@ export function PostComposer({
                 </div>
               )}
             </div>
+          </Card>
+        )}
+
+        <MediaCard
+          locale={locale}
+          featureState={mediaFeature}
+          onUse={(item, previewUrl) => setAttachedMedia((current) => [...current, { item, previewUrl }].slice(0, 10))}
+        />
+
+        {attachedMedia.length > 0 && (
+          <Card title={run7.composer.attachedMedia}>
+            <ul className="space-y-2">
+              {attachedMedia.map(({ item }, index) => (
+                <li key={`${item.url}-${index}`} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-gray-700">{item.type} · {item.url}</span>
+                  <button type="button" className="text-xs font-medium text-red-600" onClick={() => setAttachedMedia((current) => current.filter((_, currentIndex) => currentIndex !== index))}>{run7.composer.remove}</button>
+                </li>
+              ))}
+            </ul>
           </Card>
         )}
 
@@ -418,6 +569,7 @@ export function PostComposer({
         )}
 
         <Card title="Adaptation">
+          <div className="space-y-4">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
@@ -433,6 +585,14 @@ export function PostComposer({
               </span>
             </span>
           </label>
+          <label className="flex items-start gap-3">
+            <input type="checkbox" checked={unicodeBoldEnabled} onChange={(event) => setUnicodeBoldEnabled(event.target.checked)} className="mt-0.5 h-4 w-4 rounded text-primary-600" />
+            <span>
+              <span className="block text-sm font-medium text-gray-900">{run7.composer.unicodeBold}</span>
+              <span className="block text-xs text-amber-700">{run7.composer.unicodeWarning}</span>
+            </span>
+          </label>
+          </div>
         </Card>
 
         <Card title="Schedule">
@@ -465,10 +625,28 @@ export function PostComposer({
                 value={scheduledAt}
                 min={minSchedule}
                 max={maxSchedule}
-                onChange={(event) => setScheduledAt(event.target.value)}
+                onChange={(event) => {
+                  setScheduledAt(event.target.value);
+                  setScheduledTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+                  setQueuedSlot(null);
+                }}
                 className="block w-full max-w-xs rounded-md border-0 px-3 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-primary-600"
               />
             )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">
+              <Button type="button" variant="secondary" size="sm" onClick={addToQueue} loading={queueLoading}>
+                Add to Queue
+              </Button>
+              <span className="text-xs text-gray-500">Build plan:</span>
+              {([1, 3, 5] as const).map((frequency) => (
+                <button key={frequency} type="button" disabled={queueLoading}
+                  onClick={() => void buildPostingPlan(frequency)}
+                  className="rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                  {frequency}×/week
+                </button>
+              ))}
+            </div>
+            {scheduleHint && <p className="text-xs text-gray-600" role="status">{scheduleHint}</p>}
           </div>
         </Card>
 
@@ -503,6 +681,17 @@ export function PostComposer({
             </button>
           )}
         </Card>
+
+        <PostPreview
+          locale={locale}
+          connections={connections}
+          selected={selected}
+          content={content}
+          contentByConnection={contentByConnection}
+          firstComment={showFirstComment ? firstComment : ''}
+          media={attachedMedia}
+          unicodeBoldEnabled={unicodeBoldEnabled}
+        />
 
         <div className="flex items-center justify-end gap-3">
           {formError && <p className="text-sm text-red-600">{formError}</p>}

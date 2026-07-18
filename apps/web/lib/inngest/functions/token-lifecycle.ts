@@ -1,5 +1,5 @@
 import { inngest } from '../client';
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import {
   refreshConnectionToken,
   buildTokenInfo,
@@ -17,11 +17,11 @@ export const refreshTokens = inngest.createFunction(
   },
   { event: 'tokens/refresh' },
   async ({ event, step }) => {
-    const { connectionId } = event.data;
+    const { connectionId, workspaceId } = event.data;
 
     return step.run('acquire-lock-and-refresh', async () => {
       try {
-        const outcome = await refreshConnectionToken(connectionId);
+        const outcome = await refreshConnectionToken(connectionId, workspaceId);
         return { connectionId, ...outcome };
       } catch (error) {
         if (error instanceof PlatformError && !error.retryable) {
@@ -45,17 +45,21 @@ export const tokenHealthCheck = inngest.createFunction(
   async ({ step }) => {
     const summary = await step.run('check-all-connections', async () => {
       const db = getServiceDb();
-      const { data, error } = await db
-        .from('platform_connections')
-        .select('*')
-        .eq('status', 'active')
-        .returns<ConnectionRow[]>();
-      if (error) throw new Error(`[token-health-check] query failed: ${error.message}`);
+      const { data: workspaces, error: workspaceError } = await db.from('workspaces').select('id').returns<Array<{ id: string }>>();
+      if (workspaceError) throw new Error(`[token-health-check] workspace query failed: ${workspaceError.message}`);
 
       const counts = { checked: 0, healthy: 0, expired: 0, unknown: 0 };
-      const refreshDue: string[] = [];
+      const refreshDue: Array<{ connectionId: string; workspaceId: string }> = [];
 
-      for (const connection of data ?? []) {
+      for (const workspace of workspaces ?? []) {
+        const { data, error } = await db
+          .from('platform_connections')
+          .select(CONNECTION_ROW_COLUMNS)
+          .eq('workspace_id', workspace.id)
+          .eq('status', 'active')
+          .returns<ConnectionRow[]>();
+        if (error) throw new Error(`[token-health-check] query failed: ${error.message}`);
+        for (const connection of data ?? []) {
         counts.checked += 1;
         const startedAt = Date.now();
         let healthy: boolean | null = null;
@@ -83,6 +87,7 @@ export const tokenHealthCheck = inngest.createFunction(
         const { error: updateError } = await db
           .from('platform_connections')
           .update({ last_health_check: checkResult })
+          .eq('workspace_id', workspace.id)
           .eq('id', connection.id);
         if (updateError) {
           console.error(`[token-health-check] result write failed: ${updateError.message}`);
@@ -91,12 +96,13 @@ export const tokenHealthCheck = inngest.createFunction(
         if (healthy === true) {
           counts.healthy += 1;
           // Proactive: token valid but expiring soon -> refresh now.
-          if (needsRefresh(connection)) refreshDue.push(connection.id);
+          if (needsRefresh(connection)) refreshDue.push({ connectionId: connection.id, workspaceId: workspace.id });
         } else if (healthy === false) {
           counts.expired += 1;
           await markConnectionExpired(connection, 'Health check got 401/403');
         } else {
           counts.unknown += 1;
+        }
         }
       }
 
@@ -106,9 +112,9 @@ export const tokenHealthCheck = inngest.createFunction(
     if (summary.refreshDue.length > 0) {
       await step.sendEvent(
         'send-refresh-events',
-        summary.refreshDue.map((connectionId) => ({
+        summary.refreshDue.map((connection) => ({
           name: 'tokens/refresh' as const,
-          data: { connectionId },
+          data: connection,
         }))
       );
     }
@@ -137,26 +143,30 @@ export const refreshExpiringTokens = inngest.createFunction(
 
       // Per-platform windows: X tokens live 2h (refresh when <1h left),
       // LinkedIn tokens live 60d (refresh when <7d left).
-      const { data, error } = await db
-        .from('platform_connections')
-        .select('id, platform, token_expires_at')
-        .eq('status', 'active')
-        .not('token_expires_at', 'is', null)
-        .or(
-          `and(platform.eq.x,token_expires_at.lt.${in1h}),and(platform.eq.linkedin,token_expires_at.lt.${in7d})`
-        )
-        .returns<Pick<ConnectionRow, 'id' | 'platform' | 'token_expires_at'>[]>();
-
-      if (error) throw new Error(`[refresh-expiring-tokens] query failed: ${error.message}`);
-      return (data ?? []).map((row) => row.id);
+      const { data: workspaces, error: workspaceError } = await db.from('workspaces').select('id').returns<Array<{ id: string }>>();
+      if (workspaceError) throw new Error(`[refresh-expiring-tokens] workspace query failed: ${workspaceError.message}`);
+      const rows: Array<{ connectionId: string; workspaceId: string }> = [];
+      for (const workspace of workspaces ?? []) {
+        const { data, error } = await db
+          .from('platform_connections')
+          .select('id, platform, token_expires_at')
+          .eq('workspace_id', workspace.id)
+          .eq('status', 'active')
+          .not('token_expires_at', 'is', null)
+          .or(`and(platform.eq.x,token_expires_at.lt.${in1h}),and(platform.eq.linkedin,token_expires_at.lt.${in7d})`)
+          .returns<Pick<ConnectionRow, 'id' | 'platform' | 'token_expires_at'>[]>();
+        if (error) throw new Error(`[refresh-expiring-tokens] query failed: ${error.message}`);
+        rows.push(...(data ?? []).map((row) => ({ connectionId: row.id, workspaceId: workspace.id })));
+      }
+      return rows;
     });
 
     if (expiring.length > 0) {
       await step.sendEvent(
         'fan-out-refresh',
-        expiring.map((connectionId) => ({
+        expiring.map((connection) => ({
           name: 'tokens/refresh' as const,
-          data: { connectionId },
+          data: connection,
         }))
       );
     }

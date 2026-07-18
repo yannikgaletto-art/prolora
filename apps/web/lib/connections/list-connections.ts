@@ -1,4 +1,4 @@
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import { toConnectionDto } from '@/lib/auth/connections';
 import { characterLimitFor } from '@/lib/posts/create-post';
 import type { Connection } from '@prolora/shared';
@@ -20,7 +20,7 @@ export async function getConnections(workspaceId: string): Promise<ConnectionLis
 
   const { data, error } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: true })
     .returns<ConnectionRow[]>();
@@ -51,7 +51,7 @@ export async function getConnectionsWithCharacterLimits(
 
   const { data, error } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: true })
     .returns<ConnectionRow[]>();

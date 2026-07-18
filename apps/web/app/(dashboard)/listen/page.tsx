@@ -10,6 +10,10 @@ import { FeedbackFilterBar } from './FeedbackFilterBar';
 import { FeedbackPagination } from './FeedbackPagination';
 import { FeedbackRow } from './FeedbackRow';
 import { SentimentDistribution } from './SentimentDistribution';
+import { SourceSetup } from './SourceSetup';
+import { buildWidgetCurl, getFeedbackSources, listenEmptyState } from '@/lib/feedback/source-setup';
+import { getSystemStatus } from '@/lib/system/doctor';
+import { getLocale } from '@/lib/i18n/server';
 
 const SENTIMENT_VALUES: FeedbackSentiment[] = ['positive', 'negative', 'neutral', 'mixed'];
 const CATEGORY_VALUES: FeedbackCategory[] = [
@@ -63,12 +67,17 @@ export default async function ListenPage({
     per_page: 20,
   };
 
-  const [list, summary] = await Promise.all([
+  const [list, summary, sources, systemStatus, locale] = await Promise.all([
     getFeedbackItems(workspace.id, filters),
     getFeedbackSummary(workspace.id, '30d'),
+    getFeedbackSources(workspace.id),
+    getSystemStatus(workspace.id),
+    getLocale(),
   ]);
 
   const topTopic = summary.top_topics[0];
+  const empty = listenEmptyState(sources.length > 0);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
   return (
     <div className="space-y-6">
@@ -86,6 +95,14 @@ export default async function ListenPage({
           Executive summary
         </Link>
       </header>
+
+      <SourceSetup
+        locale={locale}
+        initialWidgetConnected={sources.some((source) => source.source_type === 'widget' && source.status === 'active')}
+        initialRedditConnected={sources.some((source) => source.source_type === 'reddit' && source.status === 'active')}
+        widgetCurl={workspace.slug ? buildWidgetCurl(appUrl, workspace.slug) : null}
+        redditState={systemStatus.features.listen_reddit}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Total feedback (30d)" value={summary.total_feedback} />
@@ -107,8 +124,8 @@ export default async function ListenPage({
 
       {list.items.length === 0 ? (
         <EmptyState
-          title="No feedback matches these filters"
-          description="Try widening your filters, or check back once new feedback comes in from your connected sources."
+          title={empty.title}
+          description={empty.description}
         />
       ) : (
         <div className="rounded-lg border border-gray-200 bg-white">

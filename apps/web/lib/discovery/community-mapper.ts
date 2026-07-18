@@ -4,6 +4,7 @@ import { getServiceDb } from '@/lib/db';
 import { getRedditClient, type RedditSubreddit } from './reddit-client';
 import { getWorkspaceContext } from './auto-context';
 import { getAnthropicClient, AI_MODEL } from '@/lib/ai/client';
+import { ApiError } from '@/lib/api/http';
 
 const MAX_CANDIDATES = 15;
 const MIN_SUBSCRIBERS = 1000;
@@ -16,9 +17,20 @@ export interface CommunityMapperInput {
   competitors?: string[];
 }
 
+export function assertDiscoveryConfiguration(): void {
+  if (!process.env.REDDIT_CLIENT_ID || !process.env.REDDIT_CLIENT_SECRET) {
+    throw new ApiError(
+      503,
+      'Reddit access is not configured. The operator must set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET.',
+      'discovery_not_configured'
+    );
+  }
+}
+
 // ICP -> relevant subreddits: Reddit discovery + rules, then ONE batched
 // LLM evaluation call for all candidates (cost discipline, Blind Spot D1).
 export async function mapCommunities(input: CommunityMapperInput): Promise<DiscoveredCommunity[]> {
+  assertDiscoveryConfiguration();
   const reddit = getRedditClient();
 
   const topics = await deriveSearchTopics(input);

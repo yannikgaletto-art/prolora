@@ -8,6 +8,10 @@ import { WorkspaceSection } from './WorkspaceSection';
 import { ApiKeysPanel } from './ApiKeysPanel';
 import { WebhooksPanel } from './WebhooksPanel';
 import { PlanSection } from './PlanSection';
+import { SystemStatusSection } from './SystemStatusSection';
+import { getLocale } from '@/lib/i18n/server';
+import { getWorkspaceContext } from '@/lib/discovery/auto-context';
+import { CreatorStyleSection } from './CreatorStyleSection';
 
 export const metadata: Metadata = { title: 'Settings — Prolora' };
 
@@ -26,7 +30,11 @@ export default async function SettingsPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
-  const apiKeys = await listApiKeys(workspace.id);
+  const [apiKeys, locale, context] = await Promise.all([
+    listApiKeys(workspace.id),
+    getLocale(),
+    getWorkspaceContext(workspace.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -38,10 +46,16 @@ export default async function SettingsPage() {
       </div>
 
       <SettingsTabs
-        workspaceTab={<WorkspaceSection name={workspace.name} slug={workspace.slug} />}
+        workspaceTab={
+          <div className="space-y-4">
+            <WorkspaceSection name={workspace.name} slug={workspace.slug} />
+            <CreatorStyleSection initialStyle={context?.creator_style ?? 'neutral'} locale={locale} />
+          </div>
+        }
         apiKeysTab={<ApiKeysPanel workspaceId={workspace.id} initialKeys={apiKeys} />}
         webhooksTab={<WebhooksPanel workspaceId={workspace.id} />}
-        planTab={<PlanSection workspaceId={workspace.id} />}
+        planTab={<PlanSection workspaceId={workspace.id} locale={locale} />}
+        systemTab={<SystemStatusSection workspaceId={workspace.id} locale={locale} />}
       />
     </div>
   );

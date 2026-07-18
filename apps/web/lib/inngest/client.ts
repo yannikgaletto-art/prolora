@@ -8,13 +8,13 @@ export const inngest = new Inngest({
 export type ProloraEvents = {
   'post/publish': { data: { postItemId: string; workspaceId: string } };
   'post/scheduled': { data: { postGroupId: string; workspaceId: string } };
-  'post/first-comment': { data: { postItemId: string; comment: string } };
+  'post/first-comment': { data: { postItemId: string; workspaceId: string; comment: string } };
   'feedback/process': { data: { rawFeedbackId: string; workspaceId: string } };
   'feedback/batch-process': { data: { workspaceId: string; limit?: number } };
   'feedback/poll': { data: { workspaceId?: string; sourceId?: string } };
-  'tokens/refresh': { data: { connectionId: string } };
+  'tokens/refresh': { data: { connectionId: string; workspaceId: string } };
   'tokens/health-check': { data: { connectionId?: string } };
-  'metrics/collect': { data: { postItemId: string } };
+  'metrics/collect': { data: { postItemId: string; workspaceId: string } };
   'webhooks/fire': { data: { workspaceId: string; event: string; payload: Record<string, unknown> } };
   'digest/daily': { data: { workspaceId: string } };
   'board/notify-voters': { data: { boardItemId: string; newStatus: string } };

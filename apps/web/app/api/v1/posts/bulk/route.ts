@@ -4,7 +4,7 @@ import { createPostSchema, type CreatePostRequest } from '@prolora/shared';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError, ApiError } from '@/lib/api/http';
 import { createPost } from '@/lib/posts/create-post';
-import { getServiceDb, type ConnectionRow } from '@/lib/db';
+import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 
 const MAX_BULK_POSTS = 100;
 
@@ -151,7 +151,7 @@ async function loadConnectionsByPlatform(workspaceId: string): Promise<Map<strin
   const db = getServiceDb();
   const { data, error } = await db
     .from('platform_connections')
-    .select('*')
+    .select(CONNECTION_ROW_COLUMNS)
     .eq('workspace_id', workspaceId)
     .eq('status', 'active')
     .returns<ConnectionRow[]>();

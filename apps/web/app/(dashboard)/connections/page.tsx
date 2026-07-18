@@ -4,6 +4,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getConnections } from '@/lib/connections/list-connections';
 import { ConnectionsView } from './ConnectionsView';
+import { getSystemStatus } from '@/lib/system/doctor';
+import { getLocale } from '@/lib/i18n/server';
 
 export const metadata: Metadata = { title: 'Connections — Prolora' };
 
@@ -14,7 +16,11 @@ export default async function ConnectionsPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/login');
 
-  const connections = await getConnections(workspace.id);
+  const [connections, systemStatus, locale] = await Promise.all([
+    getConnections(workspace.id),
+    getSystemStatus(workspace.id),
+    getLocale(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -24,7 +30,14 @@ export default async function ConnectionsPage() {
           Connect the accounts Prolora publishes to and listens on.
         </p>
       </div>
-      <ConnectionsView initialConnections={connections} />
+      <ConnectionsView
+        initialConnections={connections}
+        locale={locale}
+        connectStates={{
+          linkedin: systemStatus.features.connect_linkedin,
+          x: systemStatus.features.connect_x,
+        }}
+      />
     </div>
   );
 }

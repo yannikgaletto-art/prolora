@@ -19,6 +19,7 @@ import {
   type PostTemplate,
   type SplinterFramework4A,
   type SplinterSuggestion,
+  type StylePreset,
 } from '@prolora/shared';
 import { getAnthropicClient, AI_MODEL } from '@/lib/ai/client';
 import { ApiError } from '@/lib/api/http';
@@ -51,7 +52,8 @@ export interface SplinterEngineResult {
 // and unit-tested. Falls back to the LinkedIn value set when nothing matches.
 export function pickSplinterTemplates(
   activePlatforms: PlatformType[],
-  catalog: PostTemplate[] = TEMPLATE_CATALOG
+  catalog: PostTemplate[] = TEMPLATE_CATALOG,
+  preferredStyle: StylePreset = 'neutral'
 ): PostTemplate[] {
   const active = new Set(activePlatforms);
   const reachable = catalog.filter((t) =>
@@ -71,6 +73,13 @@ export function pickSplinterTemplates(
 
   const picked: PostTemplate[] = [];
   const usedFamilies = new Set<string>();
+  if (preferredStyle !== 'neutral') {
+    const preferred = pool.find((template) => template.style_preset === preferredStyle);
+    if (preferred) {
+      picked.push(preferred);
+      usedFamilies.add(`${preferred.format}:${preferred.style_preset}`);
+    }
+  }
   for (const matches of priorities) {
     const candidate = pool.find(
       (t) => matches(t) && !picked.includes(t) && !usedFamilies.has(`${t.format}:${t.style_preset}`)
@@ -123,8 +132,12 @@ export async function splinterPillar(
 
   await assertCreditQuota(workspaceId, CREDIT_COSTS.pillar_splinter);
 
-  const templates = pickSplinterTemplates(input.activePlatforms);
   const context = await getWorkspaceContext(workspaceId);
+  const templates = pickSplinterTemplates(
+    input.activePlatforms,
+    TEMPLATE_CATALOG,
+    context?.creator_style
+  );
   const grounding = await loadRecentPublishedPosts(workspaceId);
 
   const platforms = [...new Set(templates.flatMap((t) => t.recommended_platforms))].filter((p) =>
@@ -142,6 +155,9 @@ export async function splinterPillar(
     'variants of the same message. Return ONLY via the pillar_splinters tool.',
     '',
     `Output language: ${language}. Voice tone: ${tone}.`,
+    context?.creator_style && context.creator_style !== 'neutral'
+      ? `Preferred structural mechanic: ${STYLE_PRESET_RULES[context.creator_style]}`
+      : 'No workspace-level structural mechanic is preferred.',
     '',
     'Label every splinter honestly:',
     '- framework_4a: which 4A angle it takes (actionable = "here is the how-to",',

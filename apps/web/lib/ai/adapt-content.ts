@@ -12,6 +12,9 @@ const PLATFORM_STYLE: Record<PlatformType, string> = {
     'Casual, conversational, community-minded. No hashtag spam (0-2 max). Note: the limit is counted in graphemes.',
   mastodon: 'Thoughtful, community-oriented tone. Hashtags are welcome for discoverability (2-4).',
   telegram: 'Direct, informative channel-post style. No hashtags needed. Links in plain form.',
+  discord: 'Conversational community update. Keep it under 2,000 characters and avoid mass mentions.',
+  devto: 'Developer article in Markdown. Use the first line as a clear title and provide practical detail.',
+  hashnode: 'Technical blog article in Markdown. Use the first line as a clear title and write for practitioners.',
 };
 
 export interface PlatformTarget {
@@ -31,6 +34,12 @@ interface AdaptationUsage {
   outputTokens: number;
 }
 
+export function adaptationLanguageInstruction(language: string | null | undefined): string {
+  return language?.trim()
+    ? `Write the final content in the workspace voice language: ${language.trim()}.`
+    : 'Preserve the source language in the final content.';
+}
+
 // Adapts one source text for N platforms IN PARALLEL (Promise.allSettled —
 // sequential would cost the user 5-10s). Any failure falls back to the
 // original content with a warning; adaptation NEVER blocks a post (R3).
@@ -40,9 +49,16 @@ export async function adaptContentForPlatforms(
   targets: PlatformTarget[]
 ): Promise<AdaptedContent[]> {
   const usage: AdaptationUsage = { inputTokens: 0, outputTokens: 0 };
+  const db = getServiceDb();
+  const { data: voice } = await db
+    .from('voice_configs')
+    .select('language')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle<{ language: string }>();
+  const languageInstruction = adaptationLanguageInstruction(voice?.language);
 
   const settled = await Promise.allSettled(
-    targets.map((target) => adaptForPlatform(content, target, usage))
+    targets.map((target) => adaptForPlatform(content, target, usage, languageInstruction))
   );
 
   const results: AdaptedContent[] = settled.map((outcome, index) => {
@@ -70,7 +86,8 @@ export async function adaptContentForPlatforms(
 async function adaptForPlatform(
   content: string,
   target: PlatformTarget,
-  usage: AdaptationUsage
+  usage: AdaptationUsage,
+  languageInstruction: string
 ): Promise<AdaptedContent> {
   const client = getAnthropicClient();
   let strictNote = '';
@@ -81,7 +98,7 @@ async function adaptForPlatform(
       max_tokens: 1024,
       system:
         'You adapt social media content for specific platforms. Keep the core message, links and meaning intact. ' +
-        'Write in the same language as the source text. Return the FINAL post text via the tool — ' +
+        `${languageInstruction} Return the FINAL post text via the tool — ` +
         'including any hashtags you add.',
       messages: [
         {

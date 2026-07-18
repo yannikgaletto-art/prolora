@@ -51,6 +51,7 @@ Unter `1) Architekture/` liegt kein Prosa-Design-Dokument, sondern eine Reihe **
 4. **`GOAL-RUN1-BACKEND.md` / `GOAL-RUN2-FRONTEND.md` / `GOAL-RUN3-MCP-SERVER.md`** — konkrete Baupläne mit MUST/SHOULD/COULD-Priorisierung und "Verhaltens-Oracles" (Laufzeit-Verhaltenschecks, nicht nur Compile-Checks) als Definition-of-Done. Dazu **`GOAL-RUN4-POST-TEMPLATES.md`** (mehrschichtige Post-Vorlagen mit KI-Draft) — umgesetzt am 2026-07-10 (MUST T0–T2 + MCP-Tools T3: Katalog in `lib/templates/`, Routen unter `api/v1/templates/`, Composer-Integration via `TemplatePicker`; grep-Oracles + `tsc` verifiziert, Laufzeit-UI-Test steht aus). Recherche-Grundlage mit Quellen liegt in `3) Research/Post-Vorlagen-Recherche-2026-07.md`.
 
 **Projektstatus:** Alle drei GOAL-RUN-Phasen sind laut Code-Zustand durchlaufen (0 TODOs, `tsc --noEmit` sauber in beiden Apps, 26/27 MCP-Tools). Das Projekt befindet sich in einer **Polish-/Lückenschluss-Phase**, nicht im Erstaufbau. Bekannte offene Punkte:
+- GOAL-RUN8 (2026-07-18): Phasen 1–4 sind implementiert und verifiziert: Impact-Coach, Prognose↔Realität, Creator-Stil-Präferenz sowie DST-sichere Auto-Kalender-Slots inkl. 30-Minuten-Wait-to-Link. Migrationen 009–011 wurden nach bestätigten STOP-Gates lokal dokumentiert und live angewendet.
 - MCP-Tool `get_usage` fehlt (COULD-Priorität, Credit-Verbrauch abfragen).
 - Daily-Digest-E-Mail-Templates sind ein bewusster No-Op-Stub (`lib/inngest/functions/metrics-webhooks.ts`, Resend-Integration).
 

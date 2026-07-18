@@ -68,7 +68,7 @@ export async function DELETE(
       let note: string | undefined;
       if (item.status === 'published' && item.platform_post_id) {
         try {
-          const { token, connection } = await getValidToken(item.connection_id);
+          const { token, connection } = await getValidToken(item.connection_id, workspaceId);
           const adapter = createAdapter(connection.platform);
           await adapter.deletePost(item.platform_post_id, token);
         } catch (error) {

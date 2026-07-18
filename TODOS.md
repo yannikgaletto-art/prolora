@@ -2,12 +2,12 @@
 
 > Angelegt 2026-07-10 durch /plan-eng-review (GOAL-RUN5). Format: Was / Warum / Kontext / Abhängig von.
 
-## 1. Dedizierter i18n-Run — Experience pro Sprache KOMPLETT machen
+## 1. ✅ Erledigt in GOAL-RUN7 — DE/EN/ES-Katalog und Aktivierungsflächen
 
 - **Was:** Katalog-Guidance (Namen, Beschreibungen, Slot-Fragen/help/example, Strategie-Panels, INTENT_INFO/ANLASS_INFO — ~350 Strings) nach DE/EN/ES; Post-Sprache an `voice_config.language` koppeln (render-prompt.ts, Scaffold, Hook-Formeln); Rest-Dashboard-Chrome migrieren.
 - **Warum:** GOAL-RUN5 (T1-Entscheidung) hat bewusst nur das i18n-Fundament + Wizard-Chrome dreisprachig gebaut. UI-Sprache ohne Post-Sprache ist für EN/ES-Nutzer wertlos — beides muss zusammen kommen, sonst bleibt die Experience halb-deutsch.
 - **Kontext:** `apps/web/lib/i18n/` (typisierte Dictionaries, getLocale, Cookie `prolora-locale`) existiert nach GOAL-RUN5. Die verworfene `LocalizedText`-Struktur ist in `1) Architekture/GOAL-RUN5-TEMPLATE-GUIDE.md` §Mehrsprachigkeit dokumentiert. Prüfen, ob bei App-weiter Migration next-intl das eigene Wörterbuch ersetzen soll (portiert 1:1).
-- **Abhängig von:** GOAL-RUN5 fertig; auslösen, sobald EN/ES-Nutzer real werden (nicht vorher — Wettbewerbsanalyse: DACH-Fokus).
+- **Ergebnis (2026-07-18):** Semantische Katalogtexte für alle Vorlagen liegen in `lib/templates/catalog-locales.json`; Wizard, Composer-Medien/Preview, Connections, Listen und System-/Plan-Status verwenden typisierte DE/EN/ES-Texte. Generierte Inhalte folgen weiterhin `voice_config.language`, unabhängig von der UI-Sprache. Regressionstests: `catalog-localization.test.ts`, `run7-i18n.test.ts`, `adaptation-language.test.ts`.
 
 ## 2. Playwright-E2E für den Wizard-Kernflow
 

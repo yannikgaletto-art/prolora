@@ -7,6 +7,7 @@ import { Modal } from '@/app/components/Modal';
 import { Textarea } from '@/app/components/Input';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
+import type { FeatureState } from '@/lib/system/doctor';
 
 interface MapCommunitiesResponse {
   communities: unknown[];
@@ -17,17 +18,23 @@ interface MapCommunitiesResponse {
 // server-rendered page. Calls POST /v1/discover/communities, then
 // router.refresh() so the Server Component re-reads the now-updated
 // discovery_communities table.
-export function AddCommunitiesButton() {
+export function AddCommunitiesButton({ featureState }: { featureState: FeatureState }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [productDescription, setProductDescription] = useState('');
   const [targetAudience, setTargetAudience] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (featureState.state !== 'ready') {
+      setFormError(featureState.hint ?? 'Community discovery is not available yet.');
+      return;
+    }
     setSubmitting(true);
+    setFormError(null);
     try {
       const result = await fetchApi<MapCommunitiesResponse>('/v1/discover/communities', {
         method: 'POST',
@@ -48,7 +55,9 @@ export function AddCommunitiesButton() {
       setTargetAudience('');
       router.refresh();
     } catch (error) {
-      setToast({ variant: 'error', message: errorMessage(error) });
+      const message = errorMessage(error);
+      setFormError(message);
+      setToast({ variant: 'error', message });
     } finally {
       setSubmitting(false);
     }
@@ -73,13 +82,27 @@ export function AddCommunitiesButton() {
             >
               Cancel
             </Button>
-            <Button type="submit" form="add-communities-form" loading={submitting}>
+            <Button
+              type="submit"
+              form="add-communities-form"
+              loading={submitting}
+              disabled={submitting || featureState.state !== 'ready'}
+            >
               Find Communities
             </Button>
           </>
         }
       >
         <form id="add-communities-form" onSubmit={handleSubmit} className="space-y-4">
+          {featureState.state !== 'ready' && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">Setup required</p>
+              <p className="mt-1">{featureState.hint}</p>
+              {featureState.missing && (
+                <p className="mt-1 font-mono text-xs">{featureState.missing.join(' · ')}</p>
+              )}
+            </div>
+          )}
           <Textarea
             label="Product description"
             name="product_description"
@@ -102,6 +125,7 @@ export function AddCommunitiesButton() {
             onChange={(event) => setTargetAudience(event.target.value)}
             hint="Who it's for — role, industry, pain point."
           />
+          {formError && <p className="text-sm text-red-600" role="alert">{formError}</p>}
         </form>
       </Modal>
 

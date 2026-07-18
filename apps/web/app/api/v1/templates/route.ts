@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { PLAN_LIMITS, type PlanType, type TemplateListResponse } from '@prolora/shared';
+import { type TemplateListResponse } from '@prolora/shared';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError } from '@/lib/api/http';
-import { getServiceDb } from '@/lib/db';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
 import { filterTemplates } from '@/lib/templates/filter';
+import { getSystemStatus } from '@/lib/system/doctor';
 
 const listQuerySchema = z.object({
   intent: z.enum(['value', 'product', 'community', 'social_proof', 'personal_brand']).optional(),
@@ -23,7 +23,7 @@ const listQuerySchema = z.object({
       'crowdsourcing',
     ])
     .optional(),
-  platform: z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']).optional(),
+  platform: z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram', 'discord', 'devto', 'hashnode']).optional(),
   format: z.enum(['text', 'thread', 'carousel_pdf', 'image_text', 'poll']).optional(),
 });
 
@@ -41,28 +41,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       format: params.get('format') ?? undefined,
     });
 
-    const templates = filterTemplates(filter).map((template) => {
+    const context = await getWorkspaceContext(workspaceId);
+    const templates = filterTemplates(filter, context?.creator_style).map((template) => {
       const { prompt_hints: _promptHints, ...summary } = template;
       return summary;
     });
 
-    const context = await getWorkspaceContext(workspaceId);
-
-    const db = getServiceDb();
-    const { data: workspace, error } = await db
-      .from('workspaces')
-      .select('plan')
-      .eq('id', workspaceId)
-      .single<{ plan: PlanType }>();
-    if (error || !workspace) {
-      throw new Error(`[templates] workspace lookup failed: ${error?.message ?? 'not found'}`);
-    }
-    const aiEnabled = (PLAN_LIMITS[workspace.plan]?.ai_credits ?? 0) > 0;
+    const status = await getSystemStatus(workspaceId);
 
     const response: TemplateListResponse = {
       templates,
       context_available: context !== null,
-      ai_enabled: aiEnabled,
+      ai_enabled: status.features.ai_drafts.state === 'ready',
     };
     return NextResponse.json(response);
   } catch (error) {

@@ -122,6 +122,9 @@ export default function VoiceConfigPage() {
         <p className="mt-1 text-sm text-gray-500">
           How Prolora drafts replies on your behalf — every draft is reviewed and posted by you.
         </p>
+        <p className="mt-1 text-xs text-gray-500">
+          This language controls generated drafts, splinters and adaptations. It is independent of the dashboard language toggle.
+        </p>
       </div>
 
       <Card>

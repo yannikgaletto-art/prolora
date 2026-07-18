@@ -8,6 +8,7 @@ import { Textarea } from '@/app/components/Input';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { OpportunityThreadRow } from '@/lib/db';
+import type { FeatureState } from '@/lib/system/doctor';
 
 interface DraftResult {
   draft_id: string;
@@ -27,6 +28,7 @@ export interface OpportunityActionsProps {
   opportunityId: string;
   status: OpportunityThreadRow['status'];
   initialDraft: string | null;
+  aiState: FeatureState;
 }
 
 // Client island: no synchronous "post it for me" route exists (Invariante
@@ -35,7 +37,7 @@ export interface OpportunityActionsProps {
 // A "Skip" button was considered and dropped — there is no route that PATCHes
 // opportunity_threads.status to an arbitrary value, only POST /:id/confirm
 // which hard-codes status to 'posted'.
-export function OpportunityActions({ opportunityId, status, initialDraft }: OpportunityActionsProps) {
+export function OpportunityActions({ opportunityId, status, initialDraft, aiState }: OpportunityActionsProps) {
   const router = useRouter();
   const [draftOpen, setDraftOpen] = useState(false);
   const [drafting, setDrafting] = useState(false);
@@ -47,6 +49,10 @@ export function OpportunityActions({ opportunityId, status, initialDraft }: Oppo
   const canAct = status === 'new' || status === 'drafted';
 
   async function handleDraft() {
+    if (aiState.state !== 'ready') {
+      setToast({ variant: 'error', message: aiState.hint ?? 'AI drafting needs setup or available credits.' });
+      return;
+    }
     setDrafting(true);
     try {
       const result = await fetchApi<DraftResult>('/v1/discover/draft', {
@@ -95,7 +101,7 @@ export function OpportunityActions({ opportunityId, status, initialDraft }: Oppo
   return (
     <>
       <div className="flex gap-2">
-        <Button variant="secondary" size="sm" onClick={handleDraft} loading={drafting}>
+        <Button variant="secondary" size="sm" onClick={handleDraft} loading={drafting} disabled={aiState.state !== 'ready'} title={aiState.state === 'ready' ? undefined : aiState.hint}>
           {status === 'drafted' ? 'Re-draft Reply' : 'Draft Reply'}
         </Button>
         {status === 'drafted' && (
@@ -104,6 +110,9 @@ export function OpportunityActions({ opportunityId, status, initialDraft }: Oppo
           </Button>
         )}
       </div>
+      {aiState.state !== 'ready' && (
+        <p className="mt-2 text-sm text-amber-700">{aiState.hint ?? 'AI drafting needs setup or available credits.'}</p>
+      )}
 
       <Modal
         open={draftOpen}

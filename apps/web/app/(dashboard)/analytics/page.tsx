@@ -4,6 +4,9 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getPostAnalytics } from '@/lib/analytics/post-metrics';
+import { getImpactAnalytics } from '@/lib/analytics/impact';
+import { fill, getDict } from '@/lib/i18n';
+import { getLocale } from '@/lib/i18n/server';
 import { Card, StatCard } from '@/app/components/Card';
 import { EmptyState } from '@/app/components/EmptyState';
 import { PLATFORM_META } from '../publish/platform-meta';
@@ -31,7 +34,12 @@ export default async function AnalyticsPage() {
   const workspace = await findWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
-  const analytics = await getPostAnalytics(workspace.id);
+  const [analytics, impact, locale] = await Promise.all([
+    getPostAnalytics(workspace.id),
+    getImpactAnalytics(workspace.id),
+    getLocale(),
+  ]);
+  const dict = getDict(locale);
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,6 +49,51 @@ export default async function AnalyticsPage() {
           Performance across every post published from this workspace.
         </p>
       </div>
+
+      <Card title={dict.impact_accuracy_title} description={dict.impact_accuracy_description}>
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-gray-900">
+            {impact.evaluated < 5
+              ? fill(dict.impact_accuracy_low_data, { n: impact.evaluated })
+              : fill(dict.impact_accuracy_result, {
+                  n: impact.evaluated,
+                  percent: percentFormatter.format(impact.accuracy ?? 0),
+                })}
+          </p>
+          {impact.evaluated > 0 && (
+            <div className="overflow-x-auto">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {dict.impact_accuracy_matrix}
+              </p>
+              <table className="w-full min-w-[520px] text-center text-xs">
+                <thead className="text-gray-500">
+                  <tr>
+                    <th className="px-2 py-2 text-left" />
+                    <th className="px-2 py-2">{dict.impact_bucket_below}</th>
+                    <th className="px-2 py-2">{dict.impact_bucket_inline}</th>
+                    <th className="px-2 py-2">{dict.impact_bucket_above}</th>
+                    <th className="px-2 py-2">{dict.impact_bucket_outlier}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(['green', 'yellow', 'red'] as const).map((light) => (
+                    <tr key={light} className="border-t border-gray-100">
+                      <th className="px-2 py-2 text-left font-semibold capitalize text-gray-700">
+                        {light === 'green' ? dict.impact_green : light === 'yellow' ? dict.impact_yellow : dict.impact_red}
+                      </th>
+                      {(['below', 'inline', 'above', 'outlier'] as const).map((bucket) => (
+                        <td key={bucket} className="px-2 py-2 font-semibold text-gray-900">
+                          {impact.matrix[light][bucket]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {analytics.totalPosts === 0 ? (
         <EmptyState
