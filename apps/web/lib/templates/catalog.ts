@@ -80,9 +80,103 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Genau eine Idee pro Absatz. Spezifische Zahlen statt Adjektive. Save-würdig schreiben ' +
-      '(wiederverwendbares Framework); der nützlichste Teil sitzt spät im Post. Kein Produkt-Pitch ' +
-      'im Hauptteil — höchstens ein P.S. Die erste Zeile trägt den ganzen Post.',
+      'Das ist KEIN "Hier sind 5 Tipps"-Post. Das ist eine opinionated Muster-Liste: ein Problem, ' +
+      'dann 3–5 Punkte, die JEWEILS eine eigene Erkenntnis transportieren — nicht offensichtliche Ratschläge. ' +
+      'Jeder Punkt muss den Leser überraschen oder eine Annahme infrage stellen. ' +
+      'Struktur pro Punkt: Regel/Muster (fett denkbar, max. 1 Zeile) + ein Satz Begründung oder Beweis. ' +
+      'Reihenfolge: das Naheliegende zuerst, das Wertvollste zuletzt (erzeugt Saves statt Abbruch). ' +
+      'Hook: konkrete Zahl + Kontext ("Ich habe 50 Posts ausgewertet. Diese 3 Muster...") — kein ' +
+      '"Hier sind meine Top-5-Tipps", kein "In diesem Post lernst du". ' +
+      'Spezifische Zahlen statt Adjektive. Pro Absatz genau ein Gedanke. ' +
+      'Kein Produkt-Pitch im Hauptteil. Der Post muss save-würdig sein: jemand muss ihn in ' +
+      '3 Monaten wieder hervorholen und sofort anwenden können.',
+  },
+  {
+    id: 'value-data-insight',
+    name: 'Daten-Erkenntnis',
+    description: 'Datengetriebener Insight-Post: eigene Analyse, überraschende Erkenntnis, Diskussionsfrage.',
+    intent: 'value',
+    post_type: 'value_edu',
+    psych_levels: ['rational', 'social'],
+    structure: ['hook_datenbasis', 'ueberraschende_erkenntnis', 'relevanz_reframe', 'empfehlung', 'punchline_kontrast', 'diskussionsfrage'],
+    hook_formulas: [
+      'Ich habe [n] [objekte] für [kontext] verglichen. Die auffälligste Erkenntnis:',
+      'Nach [n] analysierten [faellen] glaube ich: Wir optimieren die falsche Kennzahl.',
+      '[n] [objekte], [n] Interviews, [n] Muster: Was ich beim nächsten Mal anders machen würde.',
+      'Was die meisten [zielgruppe] über [thema] nicht wissen: [kurzer reframe].',
+      'Je mehr ich [thema] anschaue, desto weniger glaube ich an [gängige annahme].',
+      'Ich teste gerade, wie viel [aufgabe] sich [verändern] lässt, ohne dass [tradeoff].',
+    ],
+    cta_mechanic: 'none',
+    style_preset: 'neutral',
+    format: 'text',
+    recommended_platforms: ['linkedin', 'x', 'bluesky'],
+    anlass_keys: ['zahl', 'nichts'],
+    strategy: {
+      ziel: 'Autorität durch eigene Daten: ein Post, der Informationsvorsprung beweist statt behauptet.',
+      warum: [
+        'Informationsasymmetrie („das weißt du vermutlich nicht") ist einer der stärksten Hook-Mechanismen überhaupt.',
+        'Eigene Analysen sind nicht widerlegbar — sie gehören nur dir und machen dich zur einzigen Quelle.',
+        'Die Diskussionsfrage am Ende generiert Kommentare mit echtem Erfahrungswert statt „toller Post 👏".',
+      ],
+      benchmarks: [
+        {
+          metrik: 'Diskussionstiefe',
+          wert: 'Posts mit überprüfbarer Datenbasis + gegenintuitiver Erkenntnis erzeugen 3–5× mehr Kommentare als generische Tipps',
+          quelle: 'Reddit/LinkedIn „X Bewerbungen, Y Interviews"-Analyse 2025',
+        },
+      ],
+      aufwand: 'mittel',
+      frequenz: '1–2× pro Woche',
+    },
+    slots: [
+      {
+        key: 'datenbasis',
+        question: 'Was hast du analysiert/verglichen? (Menge + Gegenstand)',
+        help: 'Die konkrete Datenbasis — sie trägt den ganzen Hook und deine Glaubwürdigkeit.',
+        example: '147 Stellenanzeigen für AI- und Produktrollen',
+        kind: 'fact',
+        required: true,
+      },
+      {
+        key: 'erkenntnis',
+        question: 'Die überraschendste Erkenntnis daraus?',
+        help: 'Was hat dich selbst überrascht? Je gegenintuitiver, desto stärker der Post.',
+        example: 'Nicht technische Tools waren am häufigsten gefordert, sondern die Fähigkeit zwischen Fachbereich und Technik zu übersetzen',
+        kind: 'erfahrung',
+        required: true,
+      },
+      {
+        key: 'relevanz',
+        question: 'Warum ist das relevant? Welche Annahme stellt es infrage?',
+        help: 'Der Brückensatz: warum sollte deine Zielgruppe aufhören zu scrollen?',
+        example: 'Bewerber schreiben ihren CV als Tool-Liste — die Stellen suchen aber etwas anderes',
+        kind: 'angle',
+        required: true,
+      },
+      {
+        key: 'empfehlung',
+        question: 'Was leitest du daraus ab? (Handlung, Framework oder Bullet-Liste)',
+        help: 'Die nachmachbare Konsequenz — was sollte man ab sofort anders machen?',
+        example: 'Pro Station eine Entscheidung sichtbar machen: Problem, Beteiligte, Test, messbares Ergebnis',
+        kind: 'angle',
+        required: false,
+      },
+    ],
+    prompt_hints:
+      'Informationsasymmetrie als Kern-Mechanismus: der Leser erfährt etwas, das er so nicht wusste — ' +
+      'KEIN generischer Tipp, sondern eine EIGENE Erkenntnis aus EIGENEN Daten. ' +
+      'Struktur strikt einhalten: (1) Datenbasis-Hook — konkrete Zahl + was genau analysiert, EIN Satz, ' +
+      'kein Adjektiv-Füller. (2) Überraschende Erkenntnis — gegenintuitiv, maximal zwei Sätze, ' +
+      'Kontrast-Muster nutzen: „Nicht X. Sondern Y." (3) Relevanz/Reframe — warum die gängige Annahme ' +
+      'der Zielgruppe falsch oder unvollständig ist, 2–3 Sätze. (4) Konkrete Empfehlung — als Aufzählung ' +
+      'mit Spiegelstrichen ODER als „Ich würde deshalb…"-Absatz, nachmachbar und spezifisch. ' +
+      '(5) Punchline als Kontrast-Zweizeiler: „X können viele. Y können deutlich weniger." ' +
+      '(6) Offene Diskussionsfrage — echt neugierig, keine rhetorische Frage. ' +
+      'Schreibregeln: Kurze Absätze (max. 1–2 Zeilen), Leerzeilen zwischen Gedanken, ' +
+      'KEINE Emojis, KEINE Hashtags im Fließtext (nur am Ende falls LinkedIn), KEIN Produkt-Pitch, ' +
+      'KEIN „Hier sind 5 Tipps"-Muster (das ist ein ANDERES Template), sachlicher Ton mit Haltung. ' +
+      'Beweis statt Behauptung — jede Aussage durch die Datenbasis oder ein konkretes Beispiel gedeckt.',
   },
   {
     id: 'value-hormozi-carousel',
@@ -156,11 +250,14 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Playbook-Stil: Slide 1 = Bold Claim (max. 8 Worte), Slide 2 = Proof (Zahl/Referenz — ' +
-      '"Proof schlägt Promise"), dann je Slide genau ein Schritt (Regel + 1 Satz Begründung), ' +
-      'letzte Slide = zitierfähiger Merksatz + CTA. Maximal 10 Slides (Completion-Rate). ' +
-      'Kurze Sätze, keine Adjektiv-Füller, jede Aussage mit Zahl oder Beispiel. ' +
-      'Caption separat: 2–3 Sätze Kontext + CTA.',
+      'Playbook-Stil: Slide 1 = Bold Claim (max. 8 Worte, provokant genug, dass man widersprechen WILL). ' +
+      'Slide 2 = Proof — die eine Zahl oder Referenz, die den Claim belegt. "Proof schlägt Promise": ' +
+      'ERST beweisen, DANN erklären. Slides 3–8: je Slide genau EIN Schritt (Regel in 1 Zeile + ' +
+      '1 Satz Begründung ODER Gegenbeispiel). Letzte Slide: zitierfähiger Merksatz + CTA. Max. 10 Slides. ' +
+      'Caption separat: 2–3 Sätze Kontext + CTA (die Caption ist KEIN Summary der Slides). ' +
+      'Kurze Sätze. Keine Adjektiv-Füller. Jede Aussage gedeckt durch Zahl oder Beispiel. ' +
+      'KEIN Slide, das nur "Lass uns starten" oder "Bereit?" sagt (Füll-Slides senken Completion-Rate). ' +
+      'KEIN Motivations-Slide ohne konkreten Inhalt. Jede Slide muss für sich allein einen Gedanken tragen.',
     manual_steps: [
       'Slides als PDF exportieren (Canva/Figma/Keynote, quadratisch, High-Contrast-Typografie, max. 10 Slides).',
       'PDF auf LinkedIn nativ als Dokument hochladen — Prolora publisht aktuell Text + Bilder (Doc-Upload: Phase T6).',
@@ -238,9 +335,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Jeder Schritt maximal ein Satz plus optional ein konkreter Wert (Aktion + kurzes Warum/Stolperfalle). ' +
-      'Das Endergebnis steht im Hook UND am Schluss. Ein "ohne [teures Tool/Vorwissen]"-Versprechen senkt die Hürde. ' +
-      'CTA: Trigger-Wort in GROSSBUCHSTABEN, ehrlich begründen, warum das Asset per DM kommt.',
+      'Das Endergebnis gehört in die ERSTE Zeile — nicht erst am Ende verraten. Der Hook ist ein ' +
+      'Versprechen mit konkretem Ergebnis + Zeitangabe + Voraussetzungs-Abbau ("ohne Code", "in 10 Min"). ' +
+      'Schritte: pro Schritt EINE Aktion als Imperativ + kurzes Warum ODER typische Stolperfalle ' +
+      '(was beim ersten Mal schiefgeht). Maximal ein Satz pro Schritt — Klarheit schlägt Ausführlichkeit. ' +
+      'Am Ende das Ergebnis wiederholen + ehrlich sagen, wo es NICHT funktioniert (Glaubwürdigkeit). ' +
+      'CTA: Trigger-Wort in GROSSBUCHSTABEN, ehrlich begründen, warum das Asset per DM kommt ' +
+      '(z. B. "weil der Link in 2 Wochen tot wäre"). ' +
+      'KEIN Lehrer-Ton ("Zunächst musst du…"). Kein "Schritt 1: Öffne die App"-Niveau. ' +
+      'Der Leser ist nicht dumm — er braucht die EINE nicht-offensichtliche Anweisung pro Schritt.',
     manual_steps: [
       'Kommentare mit dem Trigger-Wort manuell per DM beantworten — Prolora automatisiert keine DMs.',
     ],
@@ -315,9 +418,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Nummerierte, nachmachbare Schritte; pro Schritt Aktion + kurzes Warum oder Stolperfalle. ' +
-      'Am Ende das Ergebnis wiederholen. Teilbarkeit einbauen: der Post soll den Teilenden ' +
-      'kompetent und hilfreich aussehen lassen. Sachlicher Ton, kein Marketing.',
+      'Sachlicher How-To ohne jeden Marketing-Anstrich — dieser Post muss auf Mastodon genauso ' +
+      'funktionieren wie auf LinkedIn. Nummerierte Schritte: pro Schritt eine klare Aktion + das ' +
+      'eine Detail, das beim ersten Versuch schiefgeht (nicht das Offensichtliche, sondern die Falle). ' +
+      'Hook: Ergebnis + Zeit + ehrliche Voraussetzung ("Du brauchst X"). Kein Cliffhanger, keine Tricks. ' +
+      'Am Ende: Ergebnis wiederholen + offen sagen, wofür es NICHT taugt. ' +
+      'Teilbarkeits-Prinzip: der Post muss den Teilenden kompetent aussehen lassen — das passiert nur, ' +
+      'wenn der Inhalt so konkret ist, dass ein Kollege ihn direkt umsetzen kann. ' +
+      'Ton: wie ein technischer Blogpost, eingedampft auf Feed-Länge. Keine Emojis als Aufzählungszeichen. ' +
+      'KEIN "Stell dir vor", KEIN "Game-Changer", KEIN Versprechen, das der Post nicht einlöst.',
   },
   {
     id: 'product-time-saved',
@@ -390,9 +499,17 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Genau ein Use-Case. PAS als Gerüst: Problem → Schmerz verstärken (konkrete Kosten des Status quo) → ' +
-      'Lösung. Ergebnis vor Feature; das Produkt ist Werkzeug, nie Held. Founder-Ton statt ' +
-      'Pressemitteilung. Spezifischer Ask statt "Schaut mal rein". Beweis erwähnen (Screenshot/Screencast).',
+      'EINEN einzigen Use-Case erzählen — nicht das Produkt vorstellen, sondern eine Situation lösen. ' +
+      'PAS-Gerüst: (1) Problem in einem Satz — konkreter Schmerz aus Sicht des Betroffenen, nicht aus ' +
+      'Sicht des Anbieters. (2) Schmerz verstärken: was kostet der Status quo konkret (Zeit, Geld, Nerven)? ' +
+      'Hier darf es wehtun. (3) Lösung beiläufig: "Ich habe angefangen, [das so zu machen]" — das Produkt ' +
+      'ist das Werkzeug, nie der Held. Nenne es EINMAL, im Nebensatz. ' +
+      'Schreibregeln: Ergebnis-Zahl in die ERSTE Zeile (nicht ans Ende). Kurze Absätze. ' +
+      'Founder-Ton: "ich", "mir", "mein" — nie "unser Tool", "wir bieten", "unsere Lösung". ' +
+      'KEIN Feature-Listing. KEINE Marketing-Adjektive (leistungsstark, nahtlos, revolutionär). ' +
+      'KEIN "Schaut mal rein". Stattdessen: spezifischer Ask oder ehrliche Frage am Ende. ' +
+      'Der Post muss klingen, als würde eine Person einem Freund erzählen, wie sie ein Problem gelöst hat — ' +
+      'nicht wie eine Produktseite.',
   },
   {
     id: 'product-automation-loop',
@@ -468,10 +585,16 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Caption-Struktur: Ergebnis-Hook mit Zeit-/Geld-Zahl → was der Workflow tut (3–5 Bullets: ' +
-      'Trigger → Verarbeitung → Output) → Stack → eine ehrliche Einschränkung (Glaubwürdigkeit) → ' +
-      'Template-CTA. slides[0] = statischer Overlay-Satz über dem Video-Loop. ' +
-      'Nur versprechen, was lieferbar ist — das Asset muss existieren.',
+      'Caption-Struktur strikt: (1) Ergebnis-Hook — die gesparte Zeit/Geld-Zahl in der ERSTEN Zeile, ' +
+      'nicht das Tool. (2) Was der Workflow tut: 3–5 Bullets als Kausalkette (Trigger → Verarbeitung → ' +
+      'Output), jeder Bullet beginnt mit einem Verb. (3) Stack in einem Satz. (4) EINE ehrliche ' +
+      'Einschränkung ("Funktioniert nicht für X", "Braucht Y als Voraussetzung") — die macht alles ' +
+      'andere erst glaubwürdig. (5) Template-CTA mit Trigger-Wort. ' +
+      'slides[0] = statischer Overlay-Satz über dem Video-Loop: Muster "Wie dieser [Workflow] mir ' +
+      '[Zahl] [Aufgabe] abnimmt" — max. 12 Wörter, keine Frage, kein CTA im Overlay. ' +
+      'Ton: technisch-beiläufig, als würde ein Entwickler einem Kollegen seinen Workflow zeigen. ' +
+      'KEIN "Stell dir vor, du könntest…". KEIN "Darf ich vorstellen". KEIN Feature-Listing des Tools. ' +
+      'Das Ergebnis ist der Held, der Workflow ist das Werkzeug, das Tool ist ein Detail.',
     manual_steps: [
       'Screencast des Workflows als 5–7-Sekunden-Loop aufnehmen/exportieren.',
       'Overlay-Satz (slides[0]) im Schnitt-Tool über das Video legen.',
@@ -549,10 +672,17 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Two-sided schreiben: Stärken UND Schwächen konkret, je mit Beispiel. Erwartung vs. Realität. ' +
-      'Klares "geeignet für / nicht geeignet für" am Ende. Keine Affiliate-Sprache. ' +
-      'Falls der Nutzer eine Kooperation erwähnt: Kennzeichnung (#Anzeige) an den ANFANG des Posts. ' +
-      'CTA: offene Erfahrungsfrage an andere Nutzer.',
+      'Ehrlichkeit ist die EINZIGE Mechanik dieses Posts — ohne echte Schwäche ist er wertlos. ' +
+      'Struktur: (1) Hook mit Produkt + Zeitraum + Andeutung, dass das Fazit differenziert ausfällt. ' +
+      '(2) Kontext: warum getestet, welches Problem lösen, was war die Erwartung? (3) Stärken: ' +
+      'je Stärke EINE konkrete Situation, in der es funktioniert hat (nicht "UI ist schön"). ' +
+      '(4) Schwächen: mindestens so konkret wie die Stärken — eine vage Schwäche ("manchmal etwas langsam") ' +
+      'entwertet das ganze Fazit. (5) Klares "geeignet für / nicht geeignet für" — der Leser muss ' +
+      'in 3 Sekunden wissen, ob es für ihn passt. (6) Offene Erfahrungsfrage. ' +
+      'Ton: wie ein DM-Chat mit einem Freund, der fragt "Und, wie ist es?" — nicht wie ein Blog-SEO-Review. ' +
+      'KEINE Affiliate-Sprache ("Link in Bio", "mit meinem Code sparst du"). KEINE leere Lobhudelei. ' +
+      'Erwartung vs. Realität als roter Faden: was dachtest du vorher → was ist tatsächlich passiert? ' +
+      'Falls der Nutzer eine Kooperation/Anzeige erwähnt: #Anzeige an den ANFANG des Posts.',
   },
   {
     id: 'unboxing-first-look',
@@ -617,10 +747,16 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Dramaturgie Erwartung → Reveal: der "Geschenk-Moment" trägt den Post, nicht das Endurteil. ' +
-      'Sensorische/konkrete Details (stellvertretendes Miterleben). Genau 3 Ersteindrücke, ' +
-      'positiv UND irritierend. Offene Erwartung formulieren, Langzeittest ankündigen (Serie). ' +
-      'CTA als Frage: "Soll ich den Langzeit-Test posten?" oder "Was soll ich zuerst testen?"',
+      'Dramaturgie Erwartung → Reveal — der "Geschenk-Moment" trägt den Post, NICHT ein Endurteil. ' +
+      'Du WEISST noch nicht, ob es gut ist. Genau das macht es spannend. ' +
+      'Struktur: (1) Was + warum geholt (Erwartung/Hype/Problem, 1–2 Sätze). ' +
+      '(2) Exakt 3 Ersteindrücke — sensorisch und konkret: was hast du GESEHEN, GEFÜHLT, GEHÖRT ' +
+      'in den ersten 10 Minuten? Mindestens einer davon irritierend oder unerwartet. ' +
+      '(3) Offene Erwartung: was erhoffst du dir langfristig? (4) Serie ankündigen (Open Loop). ' +
+      'Ton: Doku-Modus — ungefiltert, wie eine Voice-Note an einen Freund. Kurze Sätze. ' +
+      'KEIN Endurteil ("absolut empfehlenswert"). KEIN Review. Du bist am Tag 1, handle danach. ' +
+      'KEINE Feature-Liste vom Hersteller nachplappern. Nur was DU in 10 Minuten erlebt hast. ' +
+      'CTA: "Soll ich den Langzeittest posten?" oder "Was soll ich als Erstes testen?" (Poll-artig).',
     manual_steps: ['Foto des Produkts/Setups anhängen — der Post lebt vom Bild.'],
   },
   {
@@ -694,9 +830,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'BAB-Logik: Before konkret schmerzhaft, After attraktiv aber NICHT überidealisiert ' +
-      '(zerstört Glaubwürdigkeit), der Beweis sitzt in der Brücke — dort, wo die Methode erklärt wird. ' +
-      'Demut statt Prahlerei: der Weg war holprig. CTA: Trigger-Wort für den detaillierten Ablauf.',
+      'BAB-Logik: (1) Before — den alten Zustand so konkret schmerzhaft beschreiben, dass der Leser ' +
+      'sich wiedererkennt. EINE Zahl, EINE Situation, EIN Gefühl. (2) Bridge — der EINE Hebel, ' +
+      'nicht fünf Tipps. Hier sitzt der Beweis: was genau hast du ANDERS gemacht? Methode > Motivation. ' +
+      '(3) After — attraktiv aber NICHT überidealisiert. Die ehrliche Zahl. Ehrlich heißt auch: ' +
+      'benennen, was NOCH NICHT gut ist (Demut schlägt Prahlerei, Überidealisierung zerstört alles). ' +
+      'Hook: Zahlen-Kontrast in der ERSTEN Zeile — "Vor 6 Monaten: X. Heute: Y." Kein Warmup davor. ' +
+      'Der Weg war holprig — EINEN konkreten Rückschlag nennen (macht den Erfolg erst glaubwürdig). ' +
+      'KEIN "Hustle-Porn". KEIN "Du musst nur…". KEINE Timeline als Aufzählung von Meilensteinen. ' +
+      'Der Post erzählt EINE Transformation mit EINEM Hebel — nicht eine Lebensgeschichte.',
     manual_steps: [
       'Beweis-Visual anhängen (Screenshot/Grafik der Zahlen).',
       'Kommentare mit dem Trigger-Wort manuell per DM beantworten — Prolora automatisiert keine DMs.',
@@ -764,9 +906,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Dokumentations-Ton, kein Marketing-Satzbau. Das Learning ist der Wert, nicht der Erfolg. ' +
-      'Konkrete Zahlen und Details ungeschönt. Kein harter CTA — höchstens eine offene Frage. ' +
-      'Kurz halten: 3–6 Sätze plus Screenshot-Verweis.',
+      'Dokumentations-Ton — wie ein Incident-Report, nicht wie ein Motivations-Post. ' +
+      'Struktur strikt: (1) Was ist passiert? Fakten, keine Wertung. (2) Warum? Die ECHTE Ursache — ' +
+      'meist unbequemer als die technische ("Ich wollte schnell fertig werden", nicht "der Server war schuld"). ' +
+      '(3) Das Learning oder der Fix — was machst du ab jetzt KONKRET anders? Nicht "Ich habe gelernt, ' +
+      'dass Backups wichtig sind" (das weiß jeder), sondern "Backup-Check ist jetzt ein Git-Hook". ' +
+      'Kein harter CTA. Höchstens eine offene Frage ("Wem ist das auch schon passiert?"). ' +
+      'Kurz: 3–6 Sätze. Der Post beichtet NICHT (kein "Sorry an alle"). Der Post teilt und gibt weiter. ' +
+      'KEIN Motivations-Spin ("Scheitern ist der Weg zum Erfolg"). KEIN Happy-End erzwingen. ' +
+      'Wenn der Fail noch wehtut: gut. So klingt es echt.',
     manual_steps: ['Screenshot als Beweis anhängen (Terminal, Fehlermeldung, Dashboard).'],
   },
   {
@@ -831,10 +979,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Klein und konkret: 3–5 Sätze. Fünf Transparenz-Ebenen als Repertoire (Fortschritt, Metriken, ' +
-      'Fails, Learnings, Entscheidungsgründe) — hier zählt die eine heutige Beobachtung. ' +
-      'Konkrete Zahlen als Anker, auch kleine. Nummerierte Serie erzeugt einen Follow-Grund. ' +
-      'Offener nächster Schritt am Ende (Open Loop), kein CTA.',
+      'KURZ. 3–5 Sätze, nicht mehr. Das ist kein Essay, das ist eine Notiz mit Seriennummer. ' +
+      'Struktur: (1) "Tag/Woche [n]:" + was gebaut/gelernt in EINEM Satz. ' +
+      '(2) Das EINE Detail, das überrascht hat — die Beobachtung, die nur DU machen konntest. ' +
+      'Je spezifischer und unerwarteter, desto stärker ("Die Hälfte klickt zuerst auf den teuersten Plan"). ' +
+      '(3) Offener nächster Schritt — was machst du morgen? (Open Loop, kein CTA). ' +
+      'Zahlen als Anker: auch kleine, auch peinliche. "3 Nutzer" ist besser als "erste Nutzer". ' +
+      'KEIN Feiern ("Wahnsinn, was für eine Woche!"). KEIN Reflektieren ("Ich bin so dankbar"). ' +
+      'Einfach dokumentieren. Die Trockenheit IST der Stil. Der Post klingt wie ein Commit-Message ' +
+      'mit einem menschlichen Satz drunter.',
     manual_steps: ['Screenshot des Tages anhängen (Work in progress, ungefiltert).'],
   },
   {
@@ -908,9 +1061,17 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Die Story trägt, das Produkt ist Requisite: maximal EINE beiläufige Erwähnung, nie im Hook, ' +
-      'nie mit Features. 80/20-Regel beachten. Pointe am Ende. Weiche Frage statt CTA ' +
-      '("Was ist in eurem Stack?"). Bei bezahltem Placement gehört #Anzeige an den Anfang.',
+      'Das ist ein ALLTAGS-Post mit Produkt als Requisite — keine Produkt-Vorstellung. ' +
+      'Die Story trägt: ein konkreter Morgen, ein Setup-Ritual, ein ehrliches Detail. ' +
+      'Das eigene Produkt wird EINMAL erwähnt, im Nebensatz, nie im Hook, nie mit Features, ' +
+      'nie als Pointe. Es ist EIN Tool unter 3–5. ' +
+      'Aufbau: (1) Hook: Rolle + Setup/Stack + ein ehrliches Detail, das menschlich macht. ' +
+      '(2) Erzählung: Ablauf/Tools im Kontext einer echten Situation — nicht als Bullet-Liste, ' +
+      'sondern als kurze Geschichte. (3) Die Pointe ist eine Beobachtung, kein Pitch. ' +
+      '(4) Weiche Frage am Ende ("Was ist in eurem Stack?" / "Welches Tool könntet ihr nicht ersetzen?"). ' +
+      'Ton: beiläufig, selbstironisch erlaubt. Der Post soll klingen wie ein Chat, nicht wie ein Newsletter. ' +
+      'KEIN "Ich nutze X und es hat mein Leben verändert". KEINE Feature-Erwähnung. ' +
+      'Bei bezahltem Placement: #Anzeige an den Anfang.',
   },
   {
     id: 'fomo-member-win',
@@ -987,9 +1148,16 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Den Erfolg des MITGLIEDS feiern, nicht den eigenen. Die Mechanik sichtbar machen: ' +
-      'Post → Feedback → Umsetzung. Konkrete Aktivitätszahlen nennen. Verknappung nur mit echtem ' +
-      'Grund (Preisfenster, Platz-Limit) — kein Dauerdruck. CTA: "Kommentiere [WORT] und ich öffne dir die Tür."',
+      'Der Held ist das MITGLIED, nicht du und nicht die Community. ' +
+      'Struktur: (1) Hook: Name + Ergebnis + Zeitraum ("Lena — erste Automation verkauft, 3 Wochen nach Start"). ' +
+      '(2) Die Mechanik sichtbar machen: was genau hat das Mitglied GETAN? Post → Feedback → Umsetzung. ' +
+      'Nicht "unsere Community ist toll", sondern der konkrete Ablauf. ' +
+      '(3) Aktivitätszahlen statt Einkommenszahlen (DACH/UWG-konform). ' +
+      '(4) CTA: "Kommentiere [WORT] und ich öffne dir die Tür" — ehrlich begründen, was drinnen wartet. ' +
+      'KEINE künstliche Verknappung ("Nur noch 3 Plätze!") ohne echten Grund. ' +
+      'KEIN "Ich bin so stolz"-Ton (das macht DICH zum Held). ' +
+      'KEIN Einkommensversprechen ("Du kannst auch X € verdienen"). ' +
+      'Der Post beweist durch ein konkretes Beispiel, was möglich ist — nicht durch Behauptung.',
     manual_steps: [
       'Screenshot anhängen (Einwilligung des Mitglieds einholen — DSGVO).',
       'Aktivitäts- statt Einkommenszahlen zeigen — Einkommens-Screenshots/Erfolgsversprechen sind in DACH wettbewerbsrechtlich heikel (UWG).',
@@ -1059,11 +1227,15 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
     ],
     prompt_hints:
-      'Nur echte, offene Entscheidungen — Alibi-Polls werden als Engagement-Bait erkannt. ' +
-      'Eigener Standpunkt als Reibung im Kontext. Eine "Sonstiges → ab in die Kommentare"-Option ' +
-      'ergänzen. Versprechen, das Ergebnis + daraus gebautes Asset zu teilen (Open Loop). ' +
-      'Optionen als klar unterscheidbare Text-Zeilen (A) B) C)) formatieren — die Pipeline kann ' +
-      'noch keine nativen Polls anlegen.',
+      'Nur eine ECHTE, OFFENE Entscheidung — der Post muss ehrlich sein: du weißt es wirklich nicht. ' +
+      'Alibi-Polls ("Was findet ihr besser: A oder offensichtlich B?") werden als Engagement-Bait erkannt. ' +
+      'Struktur: (1) Hook: woran arbeitest du + wo stehst du vor einer Wahl? (2) Kontext: warum kannst ' +
+      'du dich nicht allein entscheiden? Dein eigener Standpunkt als Reibungsfläche ("Ich tendiere zu B, aber…"). ' +
+      '(3) 2–4 Optionen als klar unterscheidbare Zeilen (A) B) C)), eine darf polarisieren. ' +
+      'IMMER eine "Sonstiges → ab in die Kommentare"-Option. ' +
+      '(4) Versprechen: wann teilst du das Ergebnis + was baust du daraus? (Open Loop). ' +
+      'KEIN Alibi-Poll, bei dem das Ergebnis egal ist. KEIN "Was denkt ihr?" ohne echte Konsequenz. ' +
+      'Der Post funktioniert, weil die Leser echten Einfluss auf etwas Reales haben.',
     manual_steps: [
       'Wo nativ möglich (X, Mastodon, LinkedIn), die Umfrage zusätzlich als echten Poll anlegen — auf LinkedIn: 3 Optionen, 7 Tage Laufzeit.',
       'Ergebnis am angekündigten Termin als Follow-up-Post teilen.',
