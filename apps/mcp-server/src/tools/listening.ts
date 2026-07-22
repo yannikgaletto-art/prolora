@@ -34,7 +34,6 @@ export function registerListeningTools(server: McpServer, client: ProloraClient)
     {
       period: z.enum(['7d', '30d', '90d']).default('30d').optional().describe('7d = Woche, 30d = Monat, 90d = Quartal.'),
     },
-    {},
     async ({ period }) => {
       try {
         const result = await client.getFeedbackSummary({ period, includeAiSummary: true });
@@ -79,7 +78,6 @@ export function registerListeningTools(server: McpServer, client: ProloraClient)
     {
       question: z.string().min(3).max(500).describe('Die Frage, z.B. "Was sagen Kunden über den Preis?"'),
     },
-    {},
     async ({ question }) => {
       try {
         const result = await client.askFeedback(question);

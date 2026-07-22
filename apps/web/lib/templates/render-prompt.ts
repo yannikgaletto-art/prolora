@@ -155,7 +155,35 @@ export interface TemplatePrompt {
   characterBudget: number;
   /** Platform whose limit produced the budget — decides the count mode. */
   budgetPlatform: PlatformType;
+  /** GOAL-RUN9 D6: minimum length for longform drafts (~60% of budget). */
+  lengthFloor: number | null;
+  /** True when a longform template fell back to punchy mode (budget < 1500). */
+  longformFallback: boolean;
 }
+
+// D6: below this budget a narrative arc physically cannot unfold — the
+// longform template auto-falls back to punchy mode and the UI says so.
+export const LONGFORM_MIN_BUDGET = 1500;
+export const LONGFORM_FLOOR_RATIO = 0.6;
+
+// Story-arc rules (GOAL-RUN9 §5 resonance schema). Replaces the punchy
+// "Structure" subsection for longform templates — Voice/Tension/Anti-pattern
+// rules stay shared, they are not duplicated.
+const STRUCTURE_RULES_PUNCHY = [
+  'Structure:',
+  '- Max. 1–2 lines per paragraph. Whitespace between thoughts. No wall of text.',
+  '- Every sentence must earn its place — if removing it does not weaken the post, cut it.',
+  '- Open with the STRONGEST line. No warming up, no "Stell dir vor…", no throat-clearing.',
+];
+
+const STRUCTURE_RULES_LONGFORM = [
+  'Structure (long-form narrative — this template tells ONE true story):',
+  '- Narrative arc, in this order: beweisbarer Ausgangspunkt → Bruch/Spannung → unerwarteter Befund → Mechanismus (warum) → konkrete Handlungsregel → Reibungsfrage.',
+  '- Short paragraphs (1–3 lines) with whitespace — long post, never wall of text.',
+  '- Open with the STRONGEST line; the first 2-3 lines must carry the post above the fold.',
+  '- Curate, do not compress: pick the ~10 strongest concrete details from the raw material and let them breathe.',
+  '- ANTI-FABRICATION (hard rule): use ONLY details from the user input and product context below. If the material is thin, write a SHORTER honest post — never invent people, numbers or events to fill length.',
+];
 
 export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt {
   const { template, slots, targetPlatforms, context } = input;
@@ -177,6 +205,11 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
   const wantsSlides =
     template.format === 'carousel_pdf' || template.style_preset === 'ai_automation_screencast';
 
+  const wantsLongform = template.narrative === 'longform';
+  const longform = wantsLongform && characterBudget >= LONGFORM_MIN_BUDGET;
+  const longformFallback = wantsLongform && !longform;
+  const lengthFloor = longform ? Math.floor(characterBudget * LONGFORM_FLOOR_RATIO) : null;
+
   const system = [
     'You are a social media ghostwriter for the DACH B2B market. You draft ONE post from a curated',
     'template. Return the result ONLY via the template_draft tool.',
@@ -188,10 +221,7 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     ...template.psych_levels.map((level) => `- ${PSYCH_LEVEL_RULES[level]}`),
     '',
     '--- WRITING QUALITY (non-negotiable, applies to every template) ---',
-    'Structure:',
-    '- Max. 1–2 lines per paragraph. Whitespace between thoughts. No wall of text.',
-    '- Every sentence must earn its place — if removing it does not weaken the post, cut it.',
-    '- Open with the STRONGEST line. No warming up, no "Stell dir vor…", no throat-clearing.',
+    ...(longform ? STRUCTURE_RULES_LONGFORM : STRUCTURE_RULES_PUNCHY),
     '',
     'Voice:',
     '- First-person with real stakes. "Ich habe…", "Mir ist aufgefallen…", "Das hat mich…".',
@@ -217,6 +247,18 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     ...targetPlatforms.map((p) => `- ${PLATFORM_NOTES[p]}`),
     '',
     `Hard length budget for "content": ${characterBudget} characters (tightest target platform: ${budgetPlatform}).`,
+    ...(lengthFloor !== null
+      ? [
+          `Length target: this is a long-form story — aim for ${lengthFloor}–${characterBudget} characters. ` +
+            'Under the floor is only acceptable when the raw material is genuinely too thin (anti-fabrication wins over length).',
+        ]
+      : []),
+    ...(longformFallback
+      ? [
+          'NOTE: this is a long-form template, but the tightest target platform cannot hold a story — ' +
+            'write the sharpest SHORT version of the same core insight instead (punchy mode).',
+        ]
+      : []),
     'Hook quality check (4U): the first line must satisfy at least 3 of 4 — useful, urgent, unique, ultra-specific.',
     wantsSlides
       ? 'This template produces "slides" — fill the slides array as instructed by the style preset.'
@@ -250,5 +292,5 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     ctaInstruction(template.cta_mechanic, targetPlatforms, slots),
   ].join('\n');
 
-  return { system, user, characterBudget, budgetPlatform };
+  return { system, user, characterBudget, budgetPlatform, lengthFloor, longformFallback };
 }

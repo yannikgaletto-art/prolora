@@ -40,7 +40,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
       adapt_content: z.boolean().optional().describe('Text automatisch pro Plattform anpassen (Ton, Länge, Hashtags).'),
       first_comment: z.string().max(2000).optional().describe('Optionaler erster Kommentar, direkt nach dem Post gesetzt.'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.createPost(input);
@@ -58,7 +57,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
       content: z.string().min(1).max(10000),
       platforms: PLATFORM_ENUM.array().min(1).max(5).describe('Plattform-Namen wie "linkedin", "x", "bluesky".'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.adaptContent(input);
@@ -81,7 +79,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
       connection_id: z.string().uuid().optional().describe('Optional für eine kalibrierte Interaktionsspanne aus diesem Account.'),
       mode: z.enum(['checks', 'full']).default('full').optional(),
     },
-    {},
     async (input) => {
       try {
         const result = await client.scorePost(input);
@@ -150,7 +147,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
         .optional()
         .describe('true = sofort veröffentlichen (Entwurf/geplanter Post geht in die Queue). Nicht zusammen mit scheduled_at.'),
     },
-    {},
     async (input) => {
       if (Boolean(input.scheduled_at) === Boolean(input.publish_now)) {
         return toToolError(
@@ -205,7 +201,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
         .min(1)
         .max(100),
     },
-    {},
     async ({ posts }) => {
       try {
         const result = await client.bulkCreatePosts(posts);
@@ -277,7 +272,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
     {
       post_group_id: z.string().uuid(),
     },
-    {},
     async ({ post_group_id }) => {
       try {
         const result = await client.retryPost(post_group_id);
@@ -364,7 +358,6 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
         .optional()
         .describe('"ai" (Default, 1 Credit, LLM-Draft) oder "scaffold" (0 Credits, Gerüst).'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.draftFromTemplate(input);

@@ -30,7 +30,6 @@ export function registerContentTools(server: McpServer, client: ProloraClient): 
       body_md: z.string().max(60_000).optional().describe('Der Pillar-Text (bei kind "paste", Markdown erlaubt).'),
       url: z.string().max(2000).optional().describe('Öffentliche Artikel-URL (bei kind "url").'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.createContentSource(input);
@@ -65,7 +64,6 @@ export function registerContentTools(server: McpServer, client: ProloraClient): 
     {
       source_id: z.string().uuid().describe('id aus list_content_sources oder add_content_source.'),
     },
-    {},
     async ({ source_id }) => {
       try {
         const result = await client.splinterSource(source_id);
@@ -87,7 +85,6 @@ export function registerContentTools(server: McpServer, client: ProloraClient): 
       content: z.string().min(1).max(30_000).describe('Der Splinter-Text (ggf. vom Nutzer angepasst).'),
       first_comment: z.string().max(2_000).optional(),
     },
-    {},
     async (input) => {
       try {
         const result = await client.acceptSplinter(input);

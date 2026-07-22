@@ -15,7 +15,6 @@ export function registerDiscoveryTools(server: McpServer, client: ProloraClient)
       product_description: z.string().min(10).max(2000).optional(),
       target_audience: z.string().min(10).max(1000).optional(),
     },
-    {},
     async (input) => {
       try {
         const result = await client.discoverCommunities(input);
@@ -35,7 +34,6 @@ export function registerDiscoveryTools(server: McpServer, client: ProloraClient)
       opportunity_id: z.string().uuid().describe('ID der Opportunity, z.B. aus get_opportunities.'),
       tone: VOICE_TONE.optional().describe('Überschreibt den Standard-Ton nur für diesen Draft.'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.draftReply(input);
@@ -73,7 +71,6 @@ export function registerDiscoveryTools(server: McpServer, client: ProloraClient)
       opportunity_id: z.string().uuid(),
       posted_url: z.string().url().optional(),
     },
-    {},
     async ({ opportunity_id, posted_url }) => {
       try {
         const result = await client.confirmPosted(opportunity_id, posted_url);
@@ -94,7 +91,6 @@ export function registerDiscoveryTools(server: McpServer, client: ProloraClient)
       angle_shift: z.string().min(3).max(500).describe('Wie sich der neue Blickwinkel vom Original unterscheidet.'),
       original_post_id: z.string().uuid().optional().describe('post_group_id oder response_map_entry_id, falls bekannt.'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.reuseContent(input);
@@ -132,7 +128,6 @@ export function registerDiscoveryTools(server: McpServer, client: ProloraClient)
       intent_type: z.enum(['question', 'comparison', 'recommendation', 'complaint', 'discussion']).optional(),
       proof_asset_url: z.string().url().optional().describe('Link zu einem Beleg (Demo, Doku, Screenshot).'),
     },
-    {},
     async (input) => {
       try {
         const result = await client.addResponseMapEntry(input);

@@ -1,7 +1,8 @@
 # @prolora/mcp-server
 
-Prolora direkt in Claude Desktop und Claude Code — posten, Feedback abfragen und
-Communities entdecken, ohne das Dashboard zu öffnen.
+Prolora direkt in Claude Desktop und Claude Code — posten, planen, Kalender
+lesen, Content splittern, Feedback abfragen und Communities entdecken, ohne
+das Dashboard zu öffnen.
 
 ## Setup (3 Schritte)
 
@@ -21,7 +22,8 @@ Dashboard → Settings → API Keys → "Neuen Key erstellen". Kopiere den Key
       "command": "npx",
       "args": ["@prolora/mcp-server"],
       "env": {
-        "PROLORA_API_KEY": "sk_live_dein_key_hier"
+        "PROLORA_API_KEY": "sk_live_dein_key_hier",
+        "PROLORA_BASE_URL": "https://<deine-prolora-instanz>/api/v1"
       }
     }
   }
@@ -37,26 +39,35 @@ Dashboard → Settings → API Keys → "Neuen Key erstellen". Kopiere den Key
       "command": "npx",
       "args": ["@prolora/mcp-server"],
       "env": {
-        "PROLORA_API_KEY": "sk_live_dein_key_hier"
+        "PROLORA_API_KEY": "sk_live_dein_key_hier",
+        "PROLORA_BASE_URL": "https://<deine-prolora-instanz>/api/v1"
       }
     }
   }
 }
 ```
 
+> **Wichtig:** Setze `PROLORA_BASE_URL` auf deine Prolora-Instanz (Vercel-URL
+> oder eigene Domain, Pfad `/api/v1`). Ohne diesen Wert greift der Default
+> `https://api.prolora.eu/v1` — der Server warnt beim Start auf stderr, wenn
+> die API dort nicht erreichbar ist. Für lokale Tests:
+> `http://localhost:3000/api/v1`.
+
 ### 3. Claude neustarten
 
-Nach dem Neustart zeigt Claude die 26 Prolora-Tools als verfügbar an.
+Nach dem Neustart zeigt Claude die 38 Prolora-Tools als verfügbar an.
 
 ---
 
-## Tools (26)
+## Tools (38)
 
-> Definition of Done fordert 27 Tools — `get_usage` fehlt bewusst, siehe
-> "Abweichungen" unten. Alle anderen 26 aus der Spec sind vollständig implementiert.
+**Publishing & Kalender (16)** — `create_post` · `schedule_post` · `get_calendar` ·
+`bulk_create_posts` · `get_posting_slot` · `get_optimal_times` · `adapt_content` ·
+`score_post` · `get_post_status` · `list_posts` · `delete_post` · `retry_post` ·
+`list_connections` · `list_templates` · `draft_from_template` · `validate_content`
 
-**Publishing (8)** — `create_post` · `adapt_content` · `get_post_status` ·
-`list_posts` · `delete_post` · `retry_post` · `list_connections` · `validate_content`
+**Content-Flywheel (4)** — `add_content_source` · `list_content_sources` ·
+`splinter_source` · `accept_splinter`
 
 **Listening (9)** — `get_feedback` · `get_feedback_summary` · `get_alerts` ·
 `ask_feedback` · `get_sentiment_trend` · `get_top_topics` · `mark_feedback` ·
@@ -69,19 +80,27 @@ Nach dem Neustart zeigt Claude die 26 Prolora-Tools als verfügbar an.
 ## Beispiel-Prompts
 
 1. "Poste 'Neues Feature gelauncht! 🚀' auf LinkedIn und Bluesky"
-2. "Was sagen Kunden diese Woche über unser Onboarding?"
-3. "Zeig mir Threads wo ich helfen kann"
-4. "Schreib einen Reply-Draft für Opportunity #3"
-5. "Welche Accounts sind gerade verbunden?"
+2. "Was geht diese Woche raus?" (→ `get_calendar`)
+3. "Verschieb den Post von morgen auf Freitag 9 Uhr" (→ `schedule_post`)
+4. "Nimm meinen Newsletter und mach daraus Posts für alle Kanäle" (→ Splinter-Flywheel)
+5. "Was sagen Kunden diese Woche über unser Onboarding?"
 
 ## Umgebungsvariablen
 
 | Variable | Pflicht | Default | Zweck |
 |---|---|---|---|
 | `PROLORA_API_KEY` | Ja | — | Auth gegen die Prolora API (`x-prolora-key` Header). Server startet mit Exit-Code 1 ohne diesen Wert. |
-| `PROLORA_BASE_URL` | Nein | `https://api.prolora.eu/v1` | Für Self-Hosting / lokale Test-Instanzen. |
+| `PROLORA_BASE_URL` | Empfohlen | `https://api.prolora.eu/v1` | URL deiner Prolora-Instanz inkl. `/api/v1`. Der Server pingt die API beim Start und warnt auf stderr, wenn sie nicht erreichbar ist. |
 
-## Abweichungen von der Spec
+## Troubleshooting
+
+- **"Prolora-API unter … nicht erreichbar"** — `PROLORA_BASE_URL` prüfen. Die
+  URL muss auf die laufende Next.js-App zeigen und mit `/api/v1` enden.
+- **"API-Key ungültig"** — Key im Dashboard neu erzeugen; er beginnt mit `sk_live_`.
+- **Timeouts bei KI-Tools** (`splinter_source`, `adapt_content`, …) — LLM-Calls
+  haben 60 s Timeout; bei Überschreitung erneut versuchen.
+
+## Abweichungen von der Spec (GOAL-RUN3)
 
 Details und Begründungen: [`docs/mcp-setup.md`](./docs/mcp-setup.md#abweichungen-von-der-spec).
 

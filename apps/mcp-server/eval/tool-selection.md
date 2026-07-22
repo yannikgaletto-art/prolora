@@ -50,3 +50,22 @@ Auswahl. Ein echter Test mit einem frischen Claude-Desktop-Kontext gegen eine
 laufende Instanz ist der nächste Schritt (siehe README "Nächster Schritt") und kann
 abweichen, insbesondere bei Prompt 3–7 (die fünf sich überlappenden Feedback-Tools),
 wo laut Spec Verwechslung am wahrscheinlichsten ist.
+
+---
+
+## Erweiterung GOAL-RUN10 (v1.1.0): 6 neue Prompts
+
+Neue Verwechslungszone laut Doc: `schedule_post` vs. `create_post` vs. `retry_post`,
+plus der Splinter-Flywheel. Statische Analyse gegen die Tool-Descriptions (wie oben):
+
+| # | Prompt | Erwartetes Tool | Ergebnis |
+|---|---|---|---|
+| 13 | „Verschieb den Post von morgen auf Freitag 9 Uhr" | `schedule_post` | ✅ — „Plant einen bestehenden Post um"; `create_post` scheidet aus, weil kein neuer Inhalt genannt wird. Vorher `list_posts`/`get_calendar` zum Auffinden der post_group_id ist erlaubtes Chaining. |
+| 14 | „Veröffentliche den Entwurf jetzt sofort" | `schedule_post` (publish_now) | ✅ — „Entwürfe (draft) werden dabei…" + publish_now-Beschreibung; `retry_post` grenzt sich auf Status "failed" ab. |
+| 15 | „Was geht diese Woche raus?" | `get_calendar` | ✅ — wörtlich in der Description als „Nutze wenn"-Beispiel hinterlegt; `list_posts` verweist explizit auf get_calendar für Kalenderfragen. |
+| 16 | „Nimm meinen Newsletter und mach daraus Posts für alle Kanäle" | `add_content_source` → `splinter_source` | ✅ — Flywheel-Kette ist in beiden Descriptions beschrieben („Danach splinter_source aufrufen"). |
+| 17 | „Plane diese 5 Posts über die Woche verteilt ein" | `bulk_create_posts` | ✅ — „bis zu 100 Posts in einem Aufruf (z. B. einen Wochenplan)"; einzelne create_post-Calls wären nicht falsch, aber die Description macht bulk zum ersten Treffer. |
+| 18 | „Wann poste ich am besten auf LinkedIn?" | `get_optimal_times` | ✅ — „beste Posting-Zeitfenster"; Abgrenzung zu `get_posting_slot` (Plan-Slot statt Engagement-Analyse) steht in beiden Descriptions. |
+
+**Ergebnis: 18/18 statisch (Ziel ≥ 16/18).** Gleiche Einschränkung wie oben: statische
+Analyse durch dieselbe Instanz, Live-Test mit frischem Kontext steht aus.

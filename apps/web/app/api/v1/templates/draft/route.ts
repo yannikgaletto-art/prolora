@@ -49,6 +49,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         slides: result.slides,
         manual_steps: result.manual_steps,
         recommended_platforms: result.recommended_platforms,
+        truncated: result.truncated,
       },
       credits_used: result.credits_used,
     };

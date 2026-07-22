@@ -42,6 +42,16 @@ export async function generateTemplateDraft(
     if (!slots[slot.key]?.trim() && slot.required) {
       throw new ApiError(400, `Missing required answer: "${slot.question}"`, 'invalid_request');
     }
+    // Real per-slot caps (GOAL-RUN9 D6): Zod only enforces the coarse 4000
+    // ceiling — only 'story' slots may actually use it.
+    const cap = slot.kind === 'story' ? 4000 : 500;
+    if ((slots[slot.key]?.length ?? 0) > cap) {
+      throw new ApiError(
+        400,
+        `Answer for "${slot.question}" exceeds ${cap} characters.`,
+        'invalid_request'
+      );
+    }
   }
 
   const prompt = buildTemplatePrompt({
@@ -62,7 +72,8 @@ export async function generateTemplateDraft(
     try {
       response = await client.messages.create({
         model: AI_MODEL,
-        max_tokens: 2048,
+        // Longform story drafts (GOAL-RUN9 D6) need headroom for ~3000 chars.
+        max_tokens: template.narrative === 'longform' ? 4096 : 2048,
         system: prompt.system,
         messages: [{ role: 'user', content: `${prompt.user}${strictNote}` }],
         tools: [
@@ -124,15 +135,37 @@ export async function generateTemplateDraft(
     };
 
     const length = measureLength(content, prompt.budgetPlatform);
-    if (length <= prompt.characterBudget) break;
-    // Over budget -> exactly one retry with a stricter note (adapt-content pattern).
-    strictNote = `\n\nSTRICT: your last attempt had ${length} characters. Keep "content" UNDER ${Math.floor(
-      prompt.characterBudget * 0.9
-    )} characters this time.`;
+    if (length > prompt.characterBudget) {
+      // Over budget -> exactly one retry with a stricter note (adapt-content pattern).
+      strictNote = `\n\nSTRICT: your last attempt had ${length} characters. Keep "content" UNDER ${Math.floor(
+        prompt.characterBudget * 0.9
+      )} characters this time.`;
+      continue;
+    }
+    if (prompt.lengthFloor !== null && length < prompt.lengthFloor) {
+      // Under the longform floor -> one mirror retry (GOAL-RUN9 D6). The floor
+      // never beats anti-fabrication: the note says "use the material", not
+      // "make things up".
+      strictNote =
+        `\n\nSTRICT: your last attempt had only ${length} characters — this long-form story targets ` +
+        `${prompt.lengthFloor}–${prompt.characterBudget}. Use MORE of the concrete details from the raw ` +
+        'material (do NOT invent new ones). If the material genuinely cannot carry more, keep it short.';
+      continue;
+    }
+    break;
   }
 
   if (!draft) {
     throw new ApiError(502, 'AI draft generation failed.', 'ai_unavailable');
+  }
+
+  // T4.4 (Bestandsbug F15): if the retry still came back over budget, the
+  // draft used to be returned unchanged and only failed later at publish.
+  // Hard-truncate at the last paragraph boundary under budget instead.
+  let truncated = false;
+  if (measureLength(draft.content, prompt.budgetPlatform) > prompt.characterBudget) {
+    draft.content = truncateAtParagraph(draft.content, prompt.characterBudget, prompt.budgetPlatform);
+    truncated = true;
   }
 
   // Charge only after success. Log failure must never eat the draft —
@@ -148,6 +181,15 @@ export async function generateTemplateDraft(
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       model: AI_MODEL,
+      // GOAL-RUN9 T2.7 observability: "story drafts come out short/truncated"
+      // must be a query, not a guess.
+      draft_length: measureLength(draft.content, prompt.budgetPlatform),
+      budget: prompt.characterBudget,
+      floor_met:
+        prompt.lengthFloor === null ||
+        measureLength(draft.content, prompt.budgetPlatform) >= prompt.lengthFloor,
+      truncated,
+      longform_fallback: prompt.longformFallback,
     },
   });
   if (usageError) {
@@ -159,7 +201,38 @@ export async function generateTemplateDraft(
     manual_steps: template.manual_steps,
     recommended_platforms: template.recommended_platforms,
     credits_used: CREDIT_COSTS.template_draft,
+    truncated: truncated || undefined,
   };
+}
+
+// T4.4: cut at the last paragraph boundary that fits the budget; if not even
+// the first paragraph fits, fall back to a hard cut (grapheme-aware, F13).
+export function truncateAtParagraph(
+  text: string,
+  budget: number,
+  platform: PlatformType
+): string {
+  if (measureLength(text, platform) <= budget) return text;
+  const paragraphs = text.split('\n\n');
+  let result = '';
+  for (const paragraph of paragraphs) {
+    const candidate = result ? `${result}\n\n${paragraph}` : paragraph;
+    if (measureLength(candidate, platform) > budget) break;
+    result = candidate;
+  }
+  if (result) return result;
+  if (platform === 'bluesky') {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    let cut = '';
+    let count = 0;
+    for (const segment of segmenter.segment(text)) {
+      if (count >= budget) break;
+      cut += segment.segment;
+      count += 1;
+    }
+    return cut;
+  }
+  return text.slice(0, budget);
 }
 
 // Bluesky counts graphemes, not characters (platform-rules.ts) — same

@@ -613,6 +613,8 @@ export interface TemplateDraftResult {
   slides?: string[];
   manual_steps?: string[];
   recommended_platforms: PlatformType[];
+  /** GOAL-RUN9 T4.4: content was hard-cut at a paragraph boundary to fit the budget. */
+  truncated?: boolean;
 }
 
 export interface TemplateListResponse {
@@ -678,12 +680,12 @@ export type ContentGoal =
 /** The three mandatory concept lenses (D5 — materially different, code-checked). */
 export type ConceptLens = 'evidence' | 'founder' | 'community';
 
-/** Gear-icon controls with the D8 defaults. All optional client-side. */
+/** Gear-icon controls with the D8 defaults. Dials are 1–5 (Zod-enforced). */
 export interface ConceptSettings {
-  valueDensity: 1 | 2 | 3 | 4 | 5;
+  valueDensity: number;
   length: 'short' | 'medium' | 'long';
-  communityCommitment: 1 | 2 | 3 | 4 | 5;
-  vulnerability: 1 | 2 | 3 | 4 | 5;
+  communityCommitment: number;
+  vulnerability: number;
   tone: 'reflective' | 'direct' | 'provocative' | 'educational';
   includeData: boolean;
   includeFramework: boolean;
