@@ -4,6 +4,7 @@ import type { PlatformType, PostStatus } from '@prolora/shared';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
 import { getPostGroups } from '@/lib/posts/list-posts';
+import { createSignedMediaPreviews } from '@/lib/media/transform';
 import { PublishTabs } from '../PublishTabs';
 import { PostsExplorer } from './PostsExplorer';
 
@@ -49,6 +50,13 @@ export default async function PublishPostsPage({ searchParams }: PublishPostsPag
     perPage: PER_PAGE,
   });
 
+  // Thumbnails for the archive: short-lived signed URLs for this page's media.
+  // Keys come from workspace-filtered rows above (Invariante 2), and only the
+  // ephemeral URL leaves the server — storage keys stay the source of truth.
+  const mediaPreviews = await createSignedMediaPreviews(
+    posts.flatMap((post) => (post.media ?? []).map((ref) => ref.storage_key))
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -58,6 +66,7 @@ export default async function PublishPostsPage({ searchParams }: PublishPostsPag
       <PublishTabs active="posts" />
       <PostsExplorer
         posts={posts}
+        mediaPreviews={mediaPreviews}
         page={page}
         perPage={perPage}
         total={total}

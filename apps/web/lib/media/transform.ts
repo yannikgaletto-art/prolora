@@ -88,6 +88,27 @@ export async function createSignedMediaUrl(storageKey: string, expiresIn = 3600)
   return data.signedUrl;
 }
 
+// Batch preview URLs for the posts archive. Error-tolerant on purpose: a
+// deleted object must render as "no preview", never crash the archive page.
+// Callers pass keys read from workspace-filtered rows (Invariante 2 upstream).
+export async function createSignedMediaPreviews(
+  storageKeys: string[],
+  expiresIn = 600
+): Promise<Record<string, string | null>> {
+  const previews: Record<string, string | null> = {};
+  const unique = [...new Set(storageKeys)];
+  if (unique.length === 0) return previews;
+
+  const db = getServiceDb();
+  const { data, error } = await db.storage.from(MEDIA_BUCKET).createSignedUrls(unique, expiresIn);
+  for (const key of unique) previews[key] = null;
+  if (error || !data) return previews;
+  for (const entry of data) {
+    if (entry.path && !entry.error && entry.signedUrl) previews[entry.path] = entry.signedUrl;
+  }
+  return previews;
+}
+
 export interface PreparedMedia {
   storageKey: string;
   mimeType: string;

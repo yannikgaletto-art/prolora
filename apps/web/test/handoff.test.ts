@@ -84,6 +84,46 @@ describe('parseAppliedTemplate (pure core)', () => {
     });
   });
 
+  it('parses media entries and silently drops malformed ones', () => {
+    const result = parseAppliedTemplate(
+      raw({
+        media: [
+          {
+            type: 'image',
+            url: 'workspaces/w1/media/a/original.jpg',
+            mime_type: 'image/jpeg',
+            preview_url: 'https://signed.example/a',
+          },
+          { type: 'gif', url: 'wrong-type' },
+          { type: 'video', url: 42 },
+          { type: 'image' },
+          'kaputt',
+          null,
+        ],
+      }),
+      NOW
+    );
+    expect(result.status).toBe('applied');
+    if (result.status !== 'applied') return;
+    expect(result.payload.media).toEqual([
+      {
+        type: 'image',
+        url: 'workspaces/w1/media/a/original.jpg',
+        mime_type: 'image/jpeg',
+        alt_text: undefined,
+        preview_url: 'https://signed.example/a',
+      },
+    ]);
+  });
+
+  it('media missing, non-array, or all-invalid → undefined (composer attaches nothing)', () => {
+    for (const media of [undefined, 'kaputt', [], [{ type: 'image' }]]) {
+      const result = parseAppliedTemplate(raw({ media }), NOW);
+      expect(result.status).toBe('applied');
+      if (result.status === 'applied') expect(result.payload.media).toBeUndefined();
+    }
+  });
+
   it('respects the TTL boundary exactly (> TTL expires, = TTL applies)', () => {
     expect(parseAppliedTemplate(raw(), NOW + HANDOFF_TTL_MS).status).toBe('applied');
     expect(parseAppliedTemplate(raw(), NOW + HANDOFF_TTL_MS + 1).status).toBe('expired');

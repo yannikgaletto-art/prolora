@@ -4,6 +4,16 @@
 // silent discard). parseAppliedTemplate is pure — the CRITICAL regression test
 // (handoff.test.ts) runs it without a DOM.
 
+export interface AppliedMedia {
+  type: 'image' | 'video' | 'document';
+  /** Storage key or URL — the same value CreatePostRequest.media.url accepts. */
+  url: string;
+  mime_type?: string;
+  alt_text?: string;
+  /** Short-lived signed URL, display only — never persisted (Invariante 6). */
+  preview_url?: string;
+}
+
 export interface AppliedTemplate {
   content: string;
   firstComment?: string;
@@ -14,6 +24,8 @@ export interface AppliedTemplate {
     slides?: string[];
     manualSteps?: string[];
   } | null;
+  /** Media to re-attach (archive "reuse" flow). */
+  media?: AppliedMedia[];
 }
 
 interface HandoffPayload extends AppliedTemplate {
@@ -48,6 +60,35 @@ function parseExtras(value: unknown): AppliedTemplate['extras'] {
   };
 }
 
+// Same defensive stance as parseExtras: a malformed media entry is dropped,
+// never allowed to crash the composer or attach an unusable item.
+const MEDIA_TYPES = new Set<AppliedMedia['type']>(['image', 'video', 'document']);
+
+function parseMedia(value: unknown): AppliedMedia[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: AppliedMedia[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const media = entry as {
+      type?: unknown;
+      url?: unknown;
+      mime_type?: unknown;
+      alt_text?: unknown;
+      preview_url?: unknown;
+    };
+    if (typeof media.url !== 'string' || media.url.length === 0) continue;
+    if (typeof media.type !== 'string' || !MEDIA_TYPES.has(media.type as AppliedMedia['type'])) continue;
+    items.push({
+      type: media.type as AppliedMedia['type'],
+      url: media.url,
+      mime_type: typeof media.mime_type === 'string' ? media.mime_type : undefined,
+      alt_text: typeof media.alt_text === 'string' ? media.alt_text : undefined,
+      preview_url: typeof media.preview_url === 'string' ? media.preview_url : undefined,
+    });
+  }
+  return items.length > 0 ? items : undefined;
+}
+
 /** Pure core — feed it raw storage content and a clock. */
 export function parseAppliedTemplate(raw: string | null, now: number): HandoffResult {
   if (!raw) return { status: 'none' };
@@ -72,6 +113,7 @@ export function parseAppliedTemplate(raw: string | null, now: number): HandoffRe
         ? payload.connectionIds.filter((id): id is string => typeof id === 'string')
         : [],
       extras: parseExtras(payload.extras),
+      media: parseMedia(payload.media),
     },
   };
 }

@@ -181,6 +181,15 @@ export function MediaCard({
                 }}>{dict.use}</Button>
               )}
               <Button type="button" variant="secondary" onClick={() => setCandidate(null)}>{dict.discard}</Button>
+              {candidate.status === 'succeeded' && candidate.storage_key && (
+                <a
+                  href={`/api/v1/media/download?key=${encodeURIComponent(candidate.storage_key)}`}
+                  download
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:underline"
+                >
+                  Download
+                </a>
+              )}
               {candidate.status === 'succeeded' && <Button type="button" variant="ghost" onClick={() => void generate()}>{dict.generateAgain}</Button>}
               {shouldPollGeneration(candidate.status) && error && (
                 <Button type="button" variant="ghost" onClick={() => { setError(null); setPollAttempt((attempt) => attempt + 1); }}>{dict.retryStatus}</Button>

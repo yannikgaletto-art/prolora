@@ -127,7 +127,11 @@ export function PostComposer({
   // A template draft lands as normal, editable composer state — the existing
   // create-post flow stays untouched (GOAL-RUN4 T2-3).
   function applyTemplate(result: AppliedTemplate) {
-    setContent(result.content);
+    // Media-only handoffs (media library) leave text state untouched.
+    if (result.content) {
+      setContent(result.content);
+      setAdaptContent(true);
+    }
     if (result.firstComment) {
       setShowFirstComment(true);
       setFirstComment(result.firstComment);
@@ -135,8 +139,20 @@ export function PostComposer({
     if (result.connectionIds.length > 0) {
       setSelected(new Set(result.connectionIds));
     }
-    setAdaptContent(true);
     setTemplateExtras(result.extras);
+    if (result.media && result.media.length > 0) {
+      setAttachedMedia(
+        result.media.slice(0, 10).map((media) => ({
+          item: {
+            type: media.type,
+            url: media.url,
+            mime_type: media.mime_type,
+            alt_text: media.alt_text,
+          },
+          previewUrl: media.preview_url ?? null,
+        }))
+      );
+    }
   }
 
   // Wizard handoff (GOAL-RUN5 G4): the templates page stored the draft in
@@ -433,7 +449,18 @@ export function PostComposer({
               {attachedMedia.map(({ item }, index) => (
                 <li key={`${item.url}-${index}`} className="flex items-center justify-between gap-3 text-sm">
                   <span className="truncate text-gray-700">{item.type} · {item.url}</span>
-                  <button type="button" className="text-xs font-medium text-red-600" onClick={() => setAttachedMedia((current) => current.filter((_, currentIndex) => currentIndex !== index))}>{run7.composer.remove}</button>
+                  <span className="flex shrink-0 items-center gap-3">
+                    {!/^https?:\/\//.test(item.url) && (
+                      <a
+                        href={`/api/v1/media/download?key=${encodeURIComponent(item.url)}`}
+                        download
+                        className="text-xs font-medium text-gray-600 hover:underline"
+                      >
+                        Download
+                      </a>
+                    )}
+                    <button type="button" className="text-xs font-medium text-red-600" onClick={() => setAttachedMedia((current) => current.filter((_, currentIndex) => currentIndex !== index))}>{run7.composer.remove}</button>
+                  </span>
                 </li>
               ))}
             </ul>

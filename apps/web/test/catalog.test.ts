@@ -19,8 +19,8 @@ const POST_TYPES = [
 ] as const;
 
 describe('catalog shape', () => {
-  it('has 14 templates with unique ids', () => {
-    expect(TEMPLATE_CATALOG).toHaveLength(14);
+  it('has 15 templates with unique ids', () => {
+    expect(TEMPLATE_CATALOG).toHaveLength(15);
     const ids = TEMPLATE_CATALOG.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -45,9 +45,9 @@ describe('catalog shape', () => {
 });
 
 describe('slots (O7 — user feedback #4: every question understandable)', () => {
-  it('the catalog has exactly 52 slots in total', () => {
+  it('the catalog has exactly 56 slots in total', () => {
     const total = TEMPLATE_CATALOG.reduce((sum, t) => sum + t.slots.length, 0);
-    expect(total).toBe(52);
+    expect(total).toBe(56);
   });
 
   it('every slot carries question, help, example and a valid kind', () => {

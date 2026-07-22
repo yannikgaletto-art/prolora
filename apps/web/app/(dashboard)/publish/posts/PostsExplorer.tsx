@@ -14,10 +14,12 @@ import { Pagination } from '@/app/components/Pagination';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { PostGroupWithItems } from '@/lib/posts/list-posts';
-import type { PostItemRow } from '@/lib/db';
+import type { MediaRef, PostItemRow } from '@/lib/db';
 import { PLATFORM_META } from '../platform-meta';
+import { storeAppliedTemplate } from '../handoff';
 
 const STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
   { value: 'queued', label: 'Queued' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'publishing', label: 'Publishing' },
@@ -38,6 +40,7 @@ const STATUS_PRIORITY: PostStatus[] = [
   'publishing',
   'scheduled',
   'queued',
+  'draft',
   'published',
   'deleted',
 ];
@@ -71,11 +74,66 @@ function formatMetrics(items: PostItemRow[]): string {
   if (totals.impressions) parts.push(`${numberFormatter.format(totals.impressions)} views`);
   if (totals.likes) parts.push(`${numberFormatter.format(totals.likes)} likes`);
   if (totals.comments) parts.push(`${numberFormatter.format(totals.comments)} comments`);
+  if (totals.shares) parts.push(`${numberFormatter.format(totals.shares)} shares`);
+  if (totals.clicks) parts.push(`${numberFormatter.format(totals.clicks)} clicks`);
   return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
+/** Earliest actual publish time across the group's items, if any. */
+function publishedAt(items: PostItemRow[]): string | null {
+  const dates = items
+    .map((item) => item.published_at)
+    .filter((date): date is string => Boolean(date))
+    .sort();
+  return dates[0] ?? null;
+}
+
+const MEDIA_FALLBACK_ICON: Record<MediaRef['type'], string> = {
+  image: '🖼',
+  video: '🎬',
+  document: '📄',
+};
+
+function MediaThumb({
+  media,
+  previewUrl,
+  size,
+}: {
+  media: MediaRef;
+  previewUrl: string | null;
+  size: 'sm' | 'lg';
+}) {
+  const alt = media.alt_text ?? `${media.type} attachment`;
+  if (media.type === 'image' && previewUrl) {
+    return size === 'sm' ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={previewUrl} alt={alt} className="h-8 w-8 rounded border border-white object-cover" />
+    ) : (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={previewUrl} alt={alt} className="max-h-48 rounded-md border border-gray-200 object-contain" />
+    );
+  }
+  if (media.type === 'video' && previewUrl && size === 'lg') {
+    return <video src={previewUrl} controls className="max-h-48 rounded-md" />;
+  }
+  return (
+    <span
+      title={alt}
+      className={
+        size === 'sm'
+          ? 'flex h-8 w-8 items-center justify-center rounded border border-white bg-gray-100 text-xs'
+          : 'flex h-20 w-20 items-center justify-center rounded-md border border-gray-200 bg-gray-100 text-2xl'
+      }
+    >
+      {MEDIA_FALLBACK_ICON[media.type]}
+    </span>
+  );
 }
 
 export interface PostsExplorerProps {
   posts: PostGroupWithItems[];
+  /** storage_key → short-lived signed URL (or null if unavailable). */
+  mediaPreviews: Record<string, string | null>;
   page: number;
   perPage: number;
   total: number;
@@ -83,7 +141,7 @@ export interface PostsExplorerProps {
   platform?: PlatformType;
 }
 
-export function PostsExplorer({ posts, page, perPage, total, status, platform }: PostsExplorerProps) {
+export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, status, platform }: PostsExplorerProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [selected, setSelected] = useState<PostGroupWithItems | null>(null);
@@ -113,6 +171,30 @@ export function PostsExplorer({ posts, page, perPage, total, status, platform }:
     } finally {
       setRetrying(false);
     }
+  }
+
+  // Archive → composer: the post lands as a normal editable draft (same
+  // handoff the template wizard and Content Hub use). Media travels as
+  // storage keys — ingestMedia re-attaches them without re-uploading.
+  function handleReuse(post: PostGroupWithItems) {
+    const media = (post.media ?? []).map((ref) => ({
+      type: ref.type,
+      url: ref.storage_key,
+      mime_type: ref.mime_type,
+      alt_text: ref.alt_text,
+      preview_url: mediaPreviews[ref.storage_key] ?? undefined,
+    }));
+    storeAppliedTemplate(
+      {
+        content: post.original_content,
+        firstComment: post.first_comment ?? undefined,
+        connectionIds: [...new Set(post.post_items.map((item) => item.connection_id))],
+        extras: null,
+        media: media.length > 0 ? media : undefined,
+      },
+      Date.now()
+    );
+    router.push('/publish');
   }
 
   const hasFailedItems = selected?.post_items.some((item) => item.status === 'failed') ?? false;
@@ -165,39 +247,63 @@ export function PostsExplorer({ posts, page, perPage, total, status, platform }:
                 </tr>
               </thead>
               <tbody>
-                {posts.map((post) => (
-                  <tr
-                    key={post.id}
-                    onClick={() => setSelected(post)}
-                    className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex -space-x-1.5">
-                        {post.post_items.map((item) => (
-                          <span
-                            key={item.id}
-                            title={`${PLATFORM_META[item.platform].label}: ${item.status}`}
-                            aria-hidden="true"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold text-white"
-                            style={{ backgroundColor: PLATFORM_META[item.platform].color }}
-                          >
-                            {PLATFORM_META[item.platform].initial}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="max-w-xs px-4 py-3 text-gray-700">{preview(post.original_content)}</td>
-                    <td className="px-4 py-3">
-                      <Badge status={overallStatus(post.post_items)} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">
-                      {dateFormatter.format(new Date(post.created_at))}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">
-                      {formatMetrics(post.post_items)}
-                    </td>
-                  </tr>
-                ))}
+                {posts.map((post) => {
+                  const published = publishedAt(post.post_items);
+                  const media = post.media ?? [];
+                  return (
+                    <tr
+                      key={post.id}
+                      onClick={() => setSelected(post)}
+                      className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex -space-x-1.5">
+                          {post.post_items.map((item) => (
+                            <span
+                              key={item.id}
+                              title={`${PLATFORM_META[item.platform].label}: ${item.status}`}
+                              aria-hidden="true"
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold text-white"
+                              style={{ backgroundColor: PLATFORM_META[item.platform].color }}
+                            >
+                              {PLATFORM_META[item.platform].initial}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="max-w-xs px-4 py-3 text-gray-700">
+                        <div className="flex items-center gap-2">
+                          {media.length > 0 && (
+                            <div className="flex shrink-0 -space-x-1">
+                              {media.slice(0, 3).map((ref) => (
+                                <MediaThumb
+                                  key={ref.storage_key}
+                                  media={ref}
+                                  previewUrl={mediaPreviews[ref.storage_key] ?? null}
+                                  size="sm"
+                                />
+                              ))}
+                            </div>
+                          )}
+                          <span className="truncate">{preview(post.original_content)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge status={overallStatus(post.post_items)} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-gray-500">
+                        {published ? (
+                          <span title="Published">{dateFormatter.format(new Date(published))}</span>
+                        ) : (
+                          <span title="Created">{dateFormatter.format(new Date(post.created_at))}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-gray-500">
+                        {formatMetrics(post.post_items)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -219,6 +325,11 @@ export function PostsExplorer({ posts, page, perPage, total, status, platform }:
             <Button variant="secondary" onClick={() => setSelected(null)} disabled={retrying}>
               Close
             </Button>
+            {selected && (
+              <Button variant="secondary" disabled={retrying} onClick={() => handleReuse(selected)}>
+                Reuse in composer
+              </Button>
+            )}
             {hasFailedItems && selected && (
               <Button variant="primary" loading={retrying} onClick={() => handleRetry(selected.id)}>
                 Retry
@@ -233,6 +344,39 @@ export function PostsExplorer({ posts, page, perPage, total, status, platform }:
               <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Content</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">{selected.original_content}</p>
             </div>
+            {selected.first_comment && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">First comment</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{selected.first_comment}</p>
+              </div>
+            )}
+            {(selected.media ?? []).length > 0 && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Media</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {(selected.media ?? []).map((ref) => (
+                    <div key={ref.storage_key} className="flex flex-col items-start gap-1">
+                      <MediaThumb
+                        media={ref}
+                        previewUrl={mediaPreviews[ref.storage_key] ?? null}
+                        size="lg"
+                      />
+                      <a
+                        href={`/api/v1/media/download?key=${encodeURIComponent(ref.storage_key)}`}
+                        download
+                        className="text-xs font-medium text-gray-600 hover:underline"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-gray-500">
+              Created {dateFormatter.format(new Date(selected.created_at))}
+              {selected.scheduled_at && ` · Scheduled for ${dateFormatter.format(new Date(selected.scheduled_at))}`}
+            </p>
             <div className="flex flex-col gap-2">
               {selected.post_items.map((item) => (
                 <div key={item.id} className="rounded-md border border-gray-200 px-3 py-2.5">
@@ -242,6 +386,11 @@ export function PostsExplorer({ posts, page, perPage, total, status, platform }:
                     </span>
                     <Badge status={item.status} />
                   </div>
+                  {item.published_at && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Published {dateFormatter.format(new Date(item.published_at))}
+                    </p>
+                  )}
                   {item.platform_url && (
                     <a
                       href={item.platform_url}
