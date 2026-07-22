@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import type { PlatformType, PostStatus } from '@prolora/shared';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getPostGroups } from '@/lib/posts/list-posts';
 import { createSignedMediaPreviews } from '@/lib/media/transform';
 import { PublishTabs } from '../PublishTabs';
@@ -29,7 +29,7 @@ export default async function PublishPostsPage({ searchParams }: PublishPostsPag
   const params = await searchParams;
 
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const statusRaw = firstValue(params.status);

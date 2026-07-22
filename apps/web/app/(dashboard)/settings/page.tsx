@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { listApiKeys } from '@/lib/settings/api-keys';
 import { SettingsTabs } from './SettingsTabs';
 import { WorkspaceSection } from './WorkspaceSection';
@@ -27,7 +27,7 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const [apiKeys, locale, context] = await Promise.all([

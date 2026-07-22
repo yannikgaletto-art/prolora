@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getCalendar } from '@/lib/posts/calendar';
 import { PublishTabs } from '../PublishTabs';
 import { CalendarView } from './CalendarView';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'Calendar — Prolora' };
 // lib/ service layer; month navigation happens client-side via /api/v1/calendar.
 export default async function PublishCalendarPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   // Initial window: current month ± overscan, computed in UTC. The client

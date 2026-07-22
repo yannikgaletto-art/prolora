@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getConnections } from '@/lib/connections/list-connections';
 import { Button } from '@/app/components/Button';
 import { Input } from '@/app/components/Input';
@@ -39,7 +39,7 @@ export default async function OnboardingPage({
   const step = readStep(params);
 
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const connections = step === 2 ? await getConnections(workspace.id) : [];

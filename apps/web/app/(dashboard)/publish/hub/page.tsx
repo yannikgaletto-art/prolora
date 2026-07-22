@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getServiceDb, type ConnectionRow } from '@/lib/db';
 import { PublishTabs } from '../PublishTabs';
 import { HubView, type HubConnection } from './HubView';
@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: 'Content Hub — Prolora' };
 // splinter's target platform to a real connection id.
 export default async function ContentHubPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const db = getServiceDb();

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { PATHNAME_HEADER } from '@/lib/http-headers';
 import { AppShell } from '@/app/components/AppShell';
 
@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   // render authenticated chrome on an unauthenticated request.
   if (!user) redirect('/login');
 
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   // The onboarding wizard runs bare: its nav targets are still locked behind

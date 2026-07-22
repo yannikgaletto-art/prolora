@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getCommunities } from '@/lib/discovery/list-communities';
 import { Card } from '@/app/components/Card';
 import { Badge } from '@/app/components/Badge';
@@ -19,7 +19,7 @@ const scoreFormatter = new Intl.NumberFormat('en-US', { style: 'percent', maximu
 export default async function DiscoverPage() {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.getUser(); // session already validated by the dashboard layout
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const [communities, systemStatus] = await Promise.all([

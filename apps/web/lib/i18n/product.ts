@@ -64,6 +64,14 @@ export interface ProductCopy {
   follow_up_regenerate: string;
   shortform_fallback_hint: string;
   credits_note: string;
+  library_title: string;
+  library_subtitle: string;
+  library_add: string;
+  library_add_placeholder: string;
+  library_active: string;
+  library_post_cta: string;
+  library_edit_cta: string;
+  library_platforms_none: string;
 }
 
 const COPY: Record<AppLocale, ProductCopy> = {
@@ -149,6 +157,14 @@ const COPY: Record<AppLocale, ProductCopy> = {
     follow_up_regenerate: 'Mit Antworten neu generieren',
     shortform_fallback_hint: 'Unter deinen Zielen ist eine Kurz-Plattform — dafür wird automatisch eine Kurzfassung erstellt.',
     credits_note: '1 Credit pro Generierung',
+    library_title: 'Deine Produkte',
+    library_subtitle: 'Ein Produkt = ein Workspace mit eigenem Profil, eigenen Kanälen und eigener Post-Historie.',
+    library_add: 'Produkt hinzufügen',
+    library_add_placeholder: 'Produktname, z. B. Pathly',
+    library_active: 'Aktiv',
+    library_post_cta: 'Post erstellen',
+    library_edit_cta: 'Produkt bearbeiten',
+    library_platforms_none: 'Noch keine Kanäle verbunden',
   },
   en: {
     profile_title: 'Product profile',
@@ -232,6 +248,14 @@ const COPY: Record<AppLocale, ProductCopy> = {
     follow_up_regenerate: 'Regenerate with answers',
     shortform_fallback_hint: 'One of your targets is a short-form platform — a short version will be created for it automatically.',
     credits_note: '1 credit per generation',
+    library_title: 'Your products',
+    library_subtitle: 'One product = one workspace with its own profile, channels and post history.',
+    library_add: 'Add product',
+    library_add_placeholder: 'Product name, e.g. Pathly',
+    library_active: 'Active',
+    library_post_cta: 'Create post',
+    library_edit_cta: 'Edit product',
+    library_platforms_none: 'No channels connected yet',
   },
   es: {
     profile_title: 'Perfil del producto',
@@ -315,6 +339,14 @@ const COPY: Record<AppLocale, ProductCopy> = {
     follow_up_regenerate: 'Regenerar con respuestas',
     shortform_fallback_hint: 'Uno de tus destinos es una plataforma corta — se creará automáticamente una versión breve.',
     credits_note: '1 crédito por generación',
+    library_title: 'Tus productos',
+    library_subtitle: 'Un producto = un workspace con su propio perfil, canales e historial de posts.',
+    library_add: 'Añadir producto',
+    library_add_placeholder: 'Nombre del producto, p. ej. Pathly',
+    library_active: 'Activo',
+    library_post_cta: 'Crear post',
+    library_edit_cta: 'Editar producto',
+    library_platforms_none: 'Aún no hay canales conectados',
   },
 };
 

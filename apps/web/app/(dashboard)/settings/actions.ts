@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace, renameWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { renameWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 
 export interface RenameState {
   status: 'idle' | 'success' | 'error';
@@ -16,7 +17,7 @@ export async function renameWorkspaceAction(
   formData: FormData
 ): Promise<RenameState> {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) {
     return { status: 'error', message: 'Workspace not found.' };
   }

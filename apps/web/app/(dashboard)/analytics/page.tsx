@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getPostAnalytics } from '@/lib/analytics/post-metrics';
 import { getImpactAnalytics } from '@/lib/analytics/impact';
 import { fill, getDict } from '@/lib/i18n';
@@ -31,7 +31,7 @@ export default async function AnalyticsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const [analytics, impact, locale] = await Promise.all([

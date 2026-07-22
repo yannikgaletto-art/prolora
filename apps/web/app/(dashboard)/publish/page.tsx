@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getConnectionsWithCharacterLimits } from '@/lib/connections/list-connections';
 import { getDict } from '@/lib/i18n';
 import { getLocale } from '@/lib/i18n/server';
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: 'Publish — Prolora' };
 // service layer directly, never by fetch()-ing our own /api/v1/connections.
 export default async function PublishPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const [connections, locale, systemStatus] = await Promise.all([

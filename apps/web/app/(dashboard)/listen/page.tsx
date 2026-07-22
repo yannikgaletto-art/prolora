@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { FeedbackCategory, FeedbackSentiment, FeedbackUrgency } from '@prolora/shared';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getFeedbackItems, type FeedbackListFilters } from '@/lib/feedback/list-feedback';
 import { getFeedbackSummary } from '@/lib/feedback/feedback-summary';
 import { StatCard } from '@/app/components/Card';
@@ -43,7 +43,7 @@ export default async function ListenPage({
 }) {
   const params = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
 
   // Layout already redirects unauthenticated / workspace-less requests —
   // this is a defensive fallback, not the primary guard.

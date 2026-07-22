@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getOpportunities } from '@/lib/discovery/list-opportunities';
 import { getCommunities } from '@/lib/discovery/list-communities';
 import { Card } from '@/app/components/Card';
@@ -52,7 +52,7 @@ interface OpportunitiesPageProps {
 export default async function OpportunitiesPage({ searchParams }: OpportunitiesPageProps) {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.getUser(); // session already validated by the dashboard layout
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const params = await searchParams;

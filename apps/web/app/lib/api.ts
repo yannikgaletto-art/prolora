@@ -37,6 +37,15 @@ async function parseBody(response: Response): Promise<unknown> {
 }
 
 // `fetchApi<PostsResponse>('/v1/posts')` -> GET /api/v1/posts
+// GOAL-RUN9 §9 T3.1: mirror the active-workspace cookie into the header the
+// auth middleware already honors (with its own membership check) — otherwise
+// session API calls would silently target the FIRST workspace after a switch.
+function activeWorkspaceHeader(): Record<string, string> {
+  if (typeof document === 'undefined') return {};
+  const match = document.cookie.match(/(?:^|;\s*)prolora_ws=([^;]+)/);
+  return match?.[1] ? { 'x-workspace-id': decodeURIComponent(match[1]) } : {};
+}
+
 export async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body !== undefined && !(options.body instanceof FormData);
 
@@ -45,6 +54,7 @@ export async function fetchApi<T>(path: string, options: RequestInit = {}): Prom
     ...options,
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...activeWorkspaceHeader(),
       ...options.headers,
     },
   });

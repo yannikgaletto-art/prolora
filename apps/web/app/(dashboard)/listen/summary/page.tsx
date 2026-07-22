@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import {
   getFeedbackSummary,
   type FeedbackSummaryPeriod,
@@ -40,7 +40,7 @@ export default async function ListenSummaryPage({
   const period = isPeriod(first(params.period)) ? (first(params.period) as FeedbackSummaryPeriod) : '30d';
 
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
 
   if (!workspace) {
     return (

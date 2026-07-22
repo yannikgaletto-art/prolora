@@ -24,7 +24,10 @@ interface NavItem {
 }
 
 // Core: the three things a new user came here to do.
+// GOAL-RUN9: Products (workspace-as-product library) sits first — the flow
+// starts with WHAT you are posting about.
 const CORE_ITEMS: NavItem[] = [
+  { href: '/products', label: 'Products', Icon: BoardIcon },
   { href: '/publish', label: 'Publish', Icon: PublishIcon },
   { href: '/listen', label: 'Listen', Icon: ListenIcon },
   { href: '/connections', label: 'Connections', Icon: ConnectionsIcon },
@@ -203,7 +206,13 @@ export function AppShell({ workspaceName, userEmail, children }: AppShellProps) 
             >
               <MenuIcon className="h-5 w-5" />
             </button>
-            <p className="truncate text-sm font-medium text-gray-900">{workspaceName}</p>
+            <Link
+              href="/products"
+              className="truncate text-sm font-medium text-gray-900 hover:text-primary-700"
+              title="Switch product"
+            >
+              {workspaceName}
+            </Link>
           </div>
           <UserMenu email={userEmail} />
         </header>

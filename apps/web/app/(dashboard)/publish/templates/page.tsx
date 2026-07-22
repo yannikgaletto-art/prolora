@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getConnectionsWithCharacterLimits } from '@/lib/connections/list-connections';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
 import { getDict } from '@/lib/i18n';
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 // so they never reach the client bundle (Oracle O3).
 export default async function TemplatesPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const [connections, context, locale, systemStatus] = await Promise.all([

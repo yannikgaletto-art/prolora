@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getProductProfile } from '@/lib/product/profile';
 import { getLocale } from '@/lib/i18n/server';
 import { getProductCopy } from '@/lib/i18n/product';
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Product — Prolora' };
 // layer directly. The form island talks to /api/v1/product/* afterwards.
 export default async function ProductPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const [profile, locale] = await Promise.all([getProductProfile(workspace.id), getLocale()]);

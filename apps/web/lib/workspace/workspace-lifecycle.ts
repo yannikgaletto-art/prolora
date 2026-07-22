@@ -57,19 +57,39 @@ function slugCandidate(base: string, attempt: number): string {
   return `${base}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
-export async function findWorkspace(supabase: SupabaseClient): Promise<WorkspaceSummary | null> {
+// GOAL-RUN9 D1: one workspace = one product. `preferredId` comes from the
+// active-workspace cookie (lib/workspace/active.ts); an id the user cannot
+// see (stale cookie, revoked membership) silently falls back to the first
+// workspace — RLS already limits the list to real memberships.
+export async function findWorkspace(
+  supabase: SupabaseClient,
+  preferredId?: string
+): Promise<WorkspaceSummary | null> {
   const { data, error } = await supabase
     .from('workspaces')
     .select('id, name, slug, settings')
     .order('created_at', { ascending: true })
-    .limit(1)
     .returns<WorkspaceRow[]>();
 
   if (error) {
     throw new Error(`[workspace] lookup failed: ${error.message}`);
   }
-  const row = data?.[0];
+  const rows = data ?? [];
+  const row = (preferredId ? rows.find((r) => r.id === preferredId) : undefined) ?? rows[0];
   return row ? toSummary(row) : null;
+}
+
+/** All workspaces the caller can see — the product library (GOAL-RUN9 §9). */
+export async function listWorkspaces(supabase: SupabaseClient): Promise<WorkspaceSummary[]> {
+  const { data, error } = await supabase
+    .from('workspaces')
+    .select('id, name, slug, settings')
+    .order('created_at', { ascending: true })
+    .returns<WorkspaceRow[]>();
+  if (error) {
+    throw new Error(`[workspace] list failed: ${error.message}`);
+  }
+  return (data ?? []).map(toSummary);
 }
 
 async function createWorkspace(
@@ -77,7 +97,28 @@ async function createWorkspace(
   userId: string,
   email: string
 ): Promise<WorkspaceSummary> {
-  const name = emailPrefix(email);
+  return insertWorkspace(supabase, userId, emailPrefix(email), false);
+}
+
+/**
+ * GOAL-RUN9 §9 T3.2: "Produkt hinzufügen" — an additional workspace named
+ * after the product. Onboarding is already done for this user, so the flag
+ * starts true; the product profile screen is the real setup surface.
+ */
+export async function createProductWorkspace(
+  supabase: SupabaseClient,
+  userId: string,
+  productName: string
+): Promise<WorkspaceSummary> {
+  return insertWorkspace(supabase, userId, productName, true);
+}
+
+async function insertWorkspace(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+  onboardingCompleted: boolean
+): Promise<WorkspaceSummary> {
   const baseSlug = slugify(name);
 
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
@@ -88,7 +129,7 @@ async function createWorkspace(
         slug: slugCandidate(baseSlug, attempt),
         owner_id: userId,
         plan: 'starter',
-        settings: { onboarding_completed: false },
+        settings: { onboarding_completed: onboardingCompleted },
       })
       .select('id, name, slug, settings')
       .single<WorkspaceRow>();

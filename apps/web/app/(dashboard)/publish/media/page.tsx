@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { listWorkspaceMedia } from '@/lib/media/library';
 import { createSignedMediaPreviews } from '@/lib/media/transform';
 import { PublishTabs } from '../PublishTabs';
@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: 'Media — Prolora' };
 // keys as identifiers (Invariante 6).
 export default async function PublishMediaPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const media = await listWorkspaceMedia(workspace.id);

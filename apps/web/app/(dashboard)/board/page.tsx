@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getAllBoardItemsForWorkspace } from '@/lib/board/board-service';
 import { Card } from '@/app/components/Card';
 import { EmptyState } from '@/app/components/EmptyState';
@@ -18,7 +18,7 @@ export default async function BoardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const items = await getAllBoardItemsForWorkspace(workspace.id);

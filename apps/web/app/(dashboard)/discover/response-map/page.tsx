@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getResponseMapEntries } from '@/lib/discovery/list-response-map';
 import { Card } from '@/app/components/Card';
 import { Badge } from '@/app/components/Badge';
@@ -29,7 +29,7 @@ function humanize(value: string): string {
 export default async function ResponseMapPage() {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.getUser(); // session already validated by the dashboard layout
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/onboarding');
 
   const entries = await getResponseMapEntries(workspace.id);

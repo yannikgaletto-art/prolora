@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { findWorkspace } from '@/lib/workspace/workspace-lifecycle';
+import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
 import { getLocale } from '@/lib/i18n/server';
 import { getProductCopy } from '@/lib/i18n/product';
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: 'Start — Prolora' };
 // the composer behind an explicit click (D4).
 export default async function StartPage() {
   const supabase = await createSupabaseServerClient();
-  const workspace = await findWorkspace(supabase);
+  const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
   const [context, locale] = await Promise.all([getWorkspaceContext(workspace.id), getLocale()]);
