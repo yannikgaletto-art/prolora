@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
+    "dev:jobs": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
     "build": "npm run build --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/web",
     "db:migrate": "npx supabase db push",

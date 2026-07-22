@@ -445,6 +445,7 @@ export const CREDIT_COSTS = {
   template_prefill: 1,
   pillar_splinter: 3,
   impact_score: 1,
+  post_concepts: 1,
 } as const;
 
 // --- Splinter Engine (GOAL-RUN6 §12 — Owned-Media-Flywheel) ---
@@ -528,8 +529,10 @@ export type TemplateFormat = 'text' | 'thread' | 'carousel_pdf' | 'image_text' |
  * (GOAL-RUN5 T4/V4). 'fact' (real numbers/names) and 'erfahrung' (lived
  * experience) are NEVER prefilled with values: inventing them would fake
  * authenticity and is UWG-risky. Only 'angle' slots may receive AI values.
+ * 'story' (GOAL-RUN9): long-form raw material dictated/typed by the user —
+ * like 'erfahrung' never AI-prefilled, but allowed up to 4000 characters.
  */
-export type TemplateSlotKind = 'fact' | 'erfahrung' | 'angle';
+export type TemplateSlotKind = 'fact' | 'erfahrung' | 'angle' | 'story';
 
 export interface TemplateSlot {
   key: string;
@@ -594,6 +597,11 @@ export interface PostTemplate {
   prompt_hints: string;
   /** Steps Prolora cannot publish automatically yet (e.g. PDF upload). */
   manual_steps?: string[];
+  /**
+   * GOAL-RUN9 D6: 'longform' switches the prompt to the narrative-arc mode
+   * with a length floor (~60% of budget). Absent = classic punchy mode.
+   */
+  narrative?: 'longform';
 }
 
 export type PostTemplateSummary = Omit<PostTemplate, 'prompt_hints'>;
@@ -638,4 +646,97 @@ export interface TemplatePrefillResponse {
   template_id: string;
   suggestions: SlotSuggestion[];
   credits_used: number;
+}
+
+// --- Product-to-Post (GOAL-RUN9) ---------------------------------------------
+
+export type ProofAssetType =
+  | 'metric'
+  | 'customer_quote'
+  | 'founder_observation'
+  | 'case_study'
+  | 'experiment';
+
+export interface ProofAsset {
+  id: string;
+  type: ProofAssetType;
+  content: string;
+  source_url: string | null;
+  verified_at: string | null;
+  created_at: string;
+}
+
+/** One primary goal per post (spec "Content Goals"). */
+export type ContentGoal =
+  | 'authority'
+  | 'community'
+  | 'productEducation'
+  | 'buildInPublic'
+  | 'conversion'
+  | 'personalStory';
+
+/** The three mandatory concept lenses (D5 — materially different, code-checked). */
+export type ConceptLens = 'evidence' | 'founder' | 'community';
+
+/** Gear-icon controls with the D8 defaults. All optional client-side. */
+export interface ConceptSettings {
+  valueDensity: 1 | 2 | 3 | 4 | 5;
+  length: 'short' | 'medium' | 'long';
+  communityCommitment: 1 | 2 | 3 | 4 | 5;
+  vulnerability: 1 | 2 | 3 | 4 | 5;
+  tone: 'reflective' | 'direct' | 'provocative' | 'educational';
+  includeData: boolean;
+  includeFramework: boolean;
+  includeCTA: boolean;
+}
+
+export const DEFAULT_CONCEPT_SETTINGS: ConceptSettings = {
+  valueDensity: 4,
+  length: 'medium',
+  communityCommitment: 3,
+  vulnerability: 3,
+  tone: 'reflective',
+  includeData: true,
+  includeFramework: true,
+  includeCTA: false,
+};
+
+/** Deterministic angle suggestion ("Prolora empfiehlt heute" — 0 credits). */
+export interface AngleSuggestion {
+  lens: ConceptLens;
+  title: string;
+  angle: string;
+  structure_label: string;
+  why_this_fits: string;
+  reference_id: string | null;
+}
+
+export interface PostConcept {
+  lens: ConceptLens;
+  title: string;
+  angle: string;
+  structure_label: string;
+  canonical_content: string;
+  rationale: string;
+  based_on_reference_ids: string[];
+  risk_flag: 'low' | 'medium' | 'high';
+}
+
+export interface ConceptResponse {
+  concepts: PostConcept[];
+  /** Present when the raw material was too thin (Phase 4) — max 3 questions. */
+  follow_up_questions?: string[];
+  credits_used: number;
+}
+
+export interface ProductProfileResponse {
+  product_description: string | null;
+  target_audience: string | null;
+  website_url: string | null;
+  core_value: string[];
+  founder_perspective: string | null;
+  brand_voice: string[];
+  taboo_topics: string[];
+  voice_language: string;
+  proof_assets: ProofAsset[];
 }

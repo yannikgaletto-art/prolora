@@ -1,10 +1,14 @@
 import { ProloraApiError } from './errors.js';
 import type {
+  AcceptSplinterResponse,
   AddResponseMapEntryResponse,
   AdaptContentResponse,
   AskFeedbackResponse,
   AutoContextResponse,
+  BulkCreateResponse,
+  CalendarResponse,
   ConfirmPostedResponse,
+  CreateContentSourceResponse,
   CreatePostResponse,
   DeletePostResponse,
   DiscoverCommunitiesResponse,
@@ -15,14 +19,19 @@ import type {
   ImpactDeterministicResult,
   ImpactScoreResponse,
   ListConnectionsResponse,
+  ListContentSourcesResponse,
   ListFeedbackResponse,
   ListOpportunitiesResponse,
   ListPostsResponse,
   MarkFeedbackResponse,
+  NextPostingSlotResponse,
+  OptimalTimesResponse,
   PostGroup,
   ResponseMapEntry,
   RetryPostResponse,
   ReuseContentResponse,
+  SchedulePostResponse,
+  SplinterResponse,
   TemplateDraftResponse,
   TemplateListResponse,
   VoiceTone,
@@ -38,6 +47,8 @@ const LLM_TIMEOUT_MS = 60_000;
 export class ProloraClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  /** true, wenn keine PROLORA_BASE_URL gesetzt ist und der Default greift. */
+  readonly usesDefaultBaseUrl: boolean;
 
   constructor() {
     const apiKey = process.env.PROLORA_API_KEY;
@@ -47,7 +58,12 @@ export class ProloraClient {
       );
     }
     this.apiKey = apiKey;
+    this.usesDefaultBaseUrl = !process.env.PROLORA_BASE_URL;
     this.baseUrl = (process.env.PROLORA_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  }
+
+  get baseUrlForDisplay(): string {
+    return this.baseUrl;
   }
 
   private async request<T>(
@@ -74,6 +90,20 @@ export class ProloraClient {
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });
+    } catch (error) {
+      // DNS-/Netzwerkfehler klar benennen statt "fetch failed" — besonders
+      // wichtig, solange die Default-Domain noch nicht live ist.
+      if (error instanceof Error && error.name !== 'AbortError') {
+        const hint = this.usesDefaultBaseUrl
+          ? ' Es ist keine PROLORA_BASE_URL gesetzt — setze sie auf deine Prolora-Instanz (z. B. https://<deine-domain>/api/v1 oder lokal http://localhost:3000/api/v1).'
+          : '';
+        throw new ProloraApiError(
+          0,
+          `Prolora-API unter ${this.baseUrl} nicht erreichbar.${hint}`,
+          true
+        );
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -100,6 +130,8 @@ export class ProloraClient {
     content: string;
     platforms: string[];
     scheduled_at?: string;
+    scheduled_tz?: string;
+    draft?: boolean;
     adapt_content?: boolean;
     first_comment?: string;
   }): Promise<CreatePostResponse> {
@@ -110,10 +142,44 @@ export class ProloraClient {
     return this.request('GET', `/posts/${encodeURIComponent(postGroupId)}`);
   }
 
-  listPosts(params: { status?: string; limit?: number; offset?: number }): Promise<ListPostsResponse> {
+  listPosts(params: {
+    status?: string;
+    platform?: string;
+    date_from?: string;
+    date_to?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ListPostsResponse> {
     const perPage = params.limit ?? 20;
     const page = params.offset ? Math.floor(params.offset / perPage) + 1 : 1;
-    return this.request('GET', '/posts', { query: { status: params.status, per_page: perPage, page } });
+    return this.request('GET', '/posts', {
+      query: {
+        status: params.status,
+        platform: params.platform,
+        date_from: params.date_from,
+        date_to: params.date_to,
+        per_page: perPage,
+        page,
+      },
+    });
+  }
+
+  schedulePost(input: {
+    post_group_id: string;
+    scheduled_at?: string;
+    scheduled_tz?: string;
+    publish_now?: boolean;
+  }): Promise<SchedulePostResponse> {
+    const { post_group_id, ...body } = input;
+    return this.request('PATCH', `/posts/${encodeURIComponent(post_group_id)}/schedule`, { body });
+  }
+
+  getCalendar(from: string, to: string): Promise<CalendarResponse> {
+    return this.request('GET', '/calendar', { query: { from, to } });
+  }
+
+  bulkCreatePosts(posts: Array<Record<string, unknown>>): Promise<BulkCreateResponse> {
+    return this.request('POST', '/posts/bulk', { body: { posts } });
   }
 
   deletePost(postGroupId: string): Promise<DeletePostResponse> {
@@ -152,6 +218,7 @@ export class ProloraClient {
     intent?: string;
     post_type?: string;
     platform?: string;
+    format?: string;
   }): Promise<TemplateListResponse> {
     return this.request('GET', '/templates', { query: params });
   }
@@ -318,6 +385,63 @@ export class ProloraClient {
       // PATCH /voice-config returns { voice_config } already — pass through.
       updated as GetVoiceConfigResponse
     );
+  }
+
+  // --- Content-Flywheel (GOAL-RUN10) ---
+
+  createContentSource(input: {
+    kind: 'paste' | 'url';
+    title?: string;
+    body_md?: string;
+    url?: string;
+  }): Promise<CreateContentSourceResponse> {
+    // URL imports fetch + extract the article server-side — LLM-class timeout.
+    return this.request('POST', '/content/sources', { body: input, llm: input.kind === 'url' });
+  }
+
+  listContentSources(): Promise<ListContentSourcesResponse> {
+    return this.request('GET', '/content/sources');
+  }
+
+  splinterSource(sourceId: string): Promise<SplinterResponse> {
+    return this.request('POST', `/content/sources/${encodeURIComponent(sourceId)}/splinter`, {
+      body: {},
+      llm: true,
+    });
+  }
+
+  acceptSplinter(input: {
+    connection_id: string;
+    platform: string;
+    content: string;
+    first_comment?: string;
+  }): Promise<AcceptSplinterResponse> {
+    return this.request('POST', '/content/splinters/accept', { body: input });
+  }
+
+  // --- Timing (GOAL-RUN10) ---
+
+  getOptimalTimes(connectionId: string): Promise<OptimalTimesResponse> {
+    return this.request('GET', `/connections/${encodeURIComponent(connectionId)}/optimal-times`);
+  }
+
+  nextPostingSlot(connectionIds: string[]): Promise<NextPostingSlotResponse> {
+    return this.request('POST', '/posting-schedules/next', { body: { connection_ids: connectionIds } });
+  }
+
+  /**
+   * Non-blocking startup ping — resolves false instead of throwing.
+   * Any HTTP answer (auch 401) heißt "Server erreichbar"; nur Netzwerk-/
+   * DNS-Fehler (status 0) oder Timeout gelten als unerreichbar.
+   */
+  async ping(): Promise<boolean> {
+    try {
+      await this.request('GET', '/system/health');
+      return true;
+    } catch (error) {
+      if (error instanceof ProloraApiError && error.status > 0) return true;
+      return false;
+    }
   }
 }
 

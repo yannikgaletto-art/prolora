@@ -36,6 +36,10 @@ describe('creator style preference', () => {
         voice_language: 'de',
         creator_style: 'koe_pia',
         confidence: null,
+        core_value: [],
+        founder_perspective: null,
+        brand_voice: [],
+        taboo_topics: [],
         last_updated_at: '2026-07-18T00:00:00Z',
         created_at: '2026-07-18T00:00:00Z',
       },
@@ -60,7 +64,11 @@ describe('creator style preference', () => {
           id: 'context', workspace_id: 'workspace', website_url: null,
           product_description: null, target_audience: null, suggested_keywords: [],
           voice_tone: 'casual', voice_language: 'de', creator_style: 'neutral',
-          confidence: null, last_updated_at: '', created_at: '',
+          confidence: null,
+          core_value: [],
+          founder_perspective: null,
+          brand_voice: [],
+          taboo_topics: [], last_updated_at: '', created_at: '',
         },
       }).system
     );

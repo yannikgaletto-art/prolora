@@ -75,7 +75,36 @@ describe('buildSystemStatus', () => {
       state: 'setup_required',
       missing: ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'],
     });
-    expect(status.features.media_generation.missing).toEqual(['OPENAI_API_KEY']);
+    expect(status.features.media_generation.missing).toEqual([
+      'OPENAI_API_KEY',
+      'INNGEST_EVENT_KEY',
+      'INNGEST_SIGNING_KEY',
+    ]);
+  });
+
+  // Regression (2026-07-22): media generation reported "ready" on the OpenAI
+  // key alone — with a dead Inngest runtime the generate button charged the
+  // budget and the row stayed 'pending' forever.
+  it('marks media generation setup_required when only background jobs are missing', () => {
+    const status = buildSystemStatus({
+      plan: 'pro',
+      creditsUsed: 0,
+      configured: {
+        anthropic: true,
+        openai: true,
+        reddit: true,
+        linkedin: true,
+        x: true,
+        inngest: false,
+      },
+      inngestMissing: ['INNGEST_DEV_SERVER'],
+    });
+
+    expect(status.features.media_generation).toMatchObject({
+      state: 'setup_required',
+      missing: ['INNGEST_DEV_SERVER'],
+    });
+    expect(status.features.media_generation.hint).toContain('Inngest');
   });
 
   it('checks the local Inngest dev server instead of treating key names as runtime readiness', async () => {

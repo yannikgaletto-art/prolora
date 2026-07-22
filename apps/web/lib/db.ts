@@ -216,6 +216,50 @@ export interface WorkspaceContextRow {
   confidence: number | null;
   last_updated_at: string;
   created_at: string;
+  // GOAL-RUN9 Phase 0 (Migration 012) — product profile fields.
+  core_value: string[];
+  founder_perspective: string | null;
+  brand_voice: string[];
+  taboo_topics: string[];
+}
+
+// GOAL-RUN9 Phase 0 (Migration 012): anti-fabrication anchor for drafts.
+export interface ProofAssetRow {
+  id: string;
+  workspace_id: string;
+  type: import('@prolora/shared').ProofAssetType;
+  content: string;
+  source_url: string | null;
+  verified_at: string | null;
+  created_at: string;
+}
+
+// GOAL-RUN9 Phase 1 (Migration 013): curated pattern library.
+// workspace_id NULL = global curated seed row.
+export interface ContentReferenceRow {
+  id: string;
+  workspace_id: string | null;
+  platform: 'reddit' | 'x' | 'linkedin' | 'instagram';
+  source_url: string | null;
+  author_name: string | null;
+  published_at: string | null;
+  engagement: Record<string, number | null> | null;
+  reference_type:
+    | 'data_analysis'
+    | 'strategy_change'
+    | 'founder_story'
+    | 'mistake_to_learning'
+    | 'contrarian_take'
+    | 'framework'
+    | 'case_study';
+  hook: string;
+  structure: Record<string, string>;
+  why_it_worked: string[];
+  reusable_pattern: string;
+  relevance_tags: string[];
+  relevance_score: number;
+  verified_at: string | null;
+  created_at: string;
 }
 
 export interface PostingScheduleRow {

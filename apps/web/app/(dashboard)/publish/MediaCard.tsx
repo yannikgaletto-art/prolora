@@ -8,6 +8,8 @@ import { Textarea } from '@/app/components/Input';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { FeatureState } from '@/lib/system/doctor';
 import {
+  generationProgress,
+  isGenerationStalled,
   normalizeMediaFormat,
   shouldPollGeneration,
   type ComposerMediaFormat,
@@ -50,6 +52,19 @@ export function MediaCard({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pollAttempt, setPollAttempt] = useState(0);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  const polling = candidate !== null && shouldPollGeneration(candidate.status);
+
+  // 1s tick drives the progress bar between polls (polls back off up to 30s —
+  // without the tick the bar would visibly freeze).
+  useEffect(() => {
+    if (!polling || startedAt === null) return;
+    setElapsedMs(Date.now() - startedAt);
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
+    return () => window.clearInterval(timer);
+  }, [polling, startedAt]);
 
   useEffect(() => {
     if (featureState.state !== 'ready') return;
@@ -100,6 +115,8 @@ export function MediaCard({
         error_message: null,
       });
       setPollAttempt(0);
+      setStartedAt(Date.now());
+      setElapsedMs(0);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -169,7 +186,35 @@ export function MediaCard({
 
         {candidate && (
           <div className="rounded-md border border-gray-200 p-3">
-            <p className="text-sm font-medium text-gray-900">{dict.generation}: {candidate.status}</p>
+            {polling ? (
+              <div>
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium text-gray-900">
+                    {candidate.kind === 'image' ? dict.progressImage : dict.progressVideo}
+                  </span>
+                  <span className="tabular-nums text-gray-500">
+                    {generationProgress(candidate.status, elapsedMs, candidate.kind)}%
+                  </span>
+                </div>
+                <div
+                  className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200"
+                  role="progressbar"
+                  aria-valuenow={generationProgress(candidate.status, elapsedMs, candidate.kind)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="h-full rounded-full bg-primary-600 transition-all duration-1000 ease-linear"
+                    style={{ width: `${generationProgress(candidate.status, elapsedMs, candidate.kind)}%` }}
+                  />
+                </div>
+                {isGenerationStalled(candidate.status, elapsedMs) && (
+                  <p className="mt-2 text-xs text-amber-700">{dict.stalledHint}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-gray-900">{dict.generation}: {candidate.status}</p>
+            )}
             {candidate.preview_url && candidate.kind === 'image' && <img src={candidate.preview_url} alt="Generated media preview" className="mt-3 max-h-80 rounded-md object-contain" />}
             {candidate.preview_url && candidate.kind === 'video' && <video src={candidate.preview_url} controls className="mt-3 max-h-80 rounded-md" />}
             {candidate.error_message && <p className="mt-2 text-sm text-red-600">{candidate.error_message}</p>}

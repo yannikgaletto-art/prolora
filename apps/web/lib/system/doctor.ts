@@ -57,6 +57,15 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
   const redditMissing = input.configured.reddit
     ? []
     : ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'];
+  const inngestMissing = input.configured.inngest
+    ? []
+    : (input.inngestMissing ?? ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY']);
+  // Generations run in an Inngest worker — without background jobs the row
+  // stays 'pending' forever and the budget reservation is paid into the void.
+  const mediaMissing = [
+    ...(input.configured.openai ? [] : ['OPENAI_API_KEY']),
+    ...inngestMissing,
+  ];
 
   return {
     features: {
@@ -67,8 +76,10 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
           : `0 AI-Credits im ${input.plan}-Plan verfügbar.`
       ),
       media_generation: feature(
-        input.configured.openai ? [] : ['OPENAI_API_KEY'],
-        'Der Betreiber muss OPENAI_API_KEY setzen und die App neu starten.'
+        mediaMissing,
+        !input.configured.openai
+          ? 'Der Betreiber muss OPENAI_API_KEY setzen und die App neu starten.'
+          : 'Background-Jobs laufen nicht — Generierungen würden nie fertig. In Production beide Inngest-Keys setzen, lokal den Inngest-Dev-Server starten.'
       ),
       discovery: feature(
         [...aiMissing, ...redditMissing],
@@ -90,7 +101,7 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
         'X OAuth muss vom Betreiber konfiguriert werden.'
       ),
       background_jobs: feature(
-        input.configured.inngest ? [] : (input.inngestMissing ?? ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY']),
+        inngestMissing,
         'In Production müssen beide Inngest-Keys gesetzt sein; lokal den Inngest-Dev-Server starten.'
       ),
     },

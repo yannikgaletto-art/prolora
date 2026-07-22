@@ -27,6 +27,16 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
         .min(1)
         .describe('Eine oder mehrere connection_id(s) aus list_connections — nicht Plattform-Namen wie "linkedin".'),
       scheduled_at: z.string().datetime().optional().describe('ISO-Zeitstempel für geplantes Posten. Weglassen = sofort.'),
+      scheduled_tz: z
+        .string()
+        .min(1)
+        .max(64)
+        .optional()
+        .describe('IANA-Zeitzone für die Kalender-Anzeige, z. B. "Europe/Berlin".'),
+      draft: z
+        .boolean()
+        .optional()
+        .describe('true = nur als Entwurf speichern, es wird NICHTS veröffentlicht. Später per schedule_post planen oder freigeben.'),
       adapt_content: z.boolean().optional().describe('Text automatisch pro Plattform anpassen (Ton, Länge, Hashtags).'),
       first_comment: z.string().max(2000).optional().describe('Optionaler erster Kommentar, direkt nach dem Post gesetzt.'),
     },
@@ -101,9 +111,13 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
 
   server.tool(
     'list_posts',
-    'Listet deine Posts auf. Filter nach Status möglich.',
+    'Listet deine Posts auf. Filter nach Status, Plattform und Zeitraum möglich. ' +
+      'Nutze wenn: du eine flache Liste willst. Für die Wochen-/Monatsansicht mit Drafts nutze get_calendar.',
     {
-      status: z.enum(['published', 'failed', 'scheduled', 'queued']).optional(),
+      status: z.enum(['published', 'failed', 'scheduled', 'queued', 'publishing', 'deleted']).optional(),
+      platform: PLATFORM_ENUM.optional().describe('Plattform-Name — filtert auf Posts mit einem Item dieser Plattform.'),
+      date_from: z.string().datetime().optional().describe('Nur Posts, die ab diesem Zeitpunkt erstellt wurden.'),
+      date_to: z.string().datetime().optional().describe('Nur Posts, die bis zu diesem Zeitpunkt erstellt wurden.'),
       limit: z.number().int().min(1).max(100).default(20).optional(),
       offset: z.number().int().min(0).optional(),
     },
@@ -111,6 +125,127 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
     async (input) => {
       try {
         const result = await client.listPosts(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'schedule_post',
+    'Plant einen bestehenden Post um oder veröffentlicht ihn sofort. Entwürfe (draft) werden dabei ' +
+      'zu geplanten Posts. Nutze wenn: der Post schon existiert (post_group_id). Für neue Posts nutze ' +
+      'create_post, für fehlgeschlagene retry_post. scheduled_at und publish_now schließen sich aus.',
+    {
+      post_group_id: z.string().uuid().describe('Die post_group_id aus create_post, list_posts oder get_calendar.'),
+      scheduled_at: z
+        .string()
+        .datetime()
+        .optional()
+        .describe('Neuer Veröffentlichungszeitpunkt (ISO, UTC). Nicht zusammen mit publish_now.'),
+      scheduled_tz: z.string().min(1).max(64).optional().describe('IANA-Zeitzone, z. B. "Europe/Berlin".'),
+      publish_now: z
+        .boolean()
+        .optional()
+        .describe('true = sofort veröffentlichen (Entwurf/geplanter Post geht in die Queue). Nicht zusammen mit scheduled_at.'),
+    },
+    {},
+    async (input) => {
+      if (Boolean(input.scheduled_at) === Boolean(input.publish_now)) {
+        return toToolError(
+          new Error('Gib entweder scheduled_at ODER publish_now: true an — genau eins von beiden.')
+        );
+      }
+      try {
+        const result = await client.schedulePost(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'get_calendar',
+    'Zeigt den Posting-Kalender: alle geplanten/veröffentlichten Posts im Zeitfenster plus ungeplante ' +
+      'Entwürfe. Nutze wenn: "Was geht diese Woche raus?" Maximal 62 Tage pro Abfrage.',
+    {
+      from: z.string().datetime().describe('Fensterbeginn (ISO, UTC), z. B. Montag 00:00.'),
+      to: z.string().datetime().describe('Fensterende (ISO, UTC). Muss nach from liegen, max. 62 Tage später.'),
+    },
+    { readOnlyHint: true },
+    async ({ from, to }) => {
+      try {
+        const result = await client.getCalendar(from, to);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'bulk_create_posts',
+    'Erstellt bis zu 100 Posts in einem Aufruf (z. B. einen Wochenplan). Jeder Eintrag hat dieselben ' +
+      'Felder wie create_post. Achtung: verbraucht pro Post Kontingent; Teilfehler werden pro Eintrag gemeldet.',
+    {
+      posts: z
+        .array(
+          z.object({
+            content: z.string().min(1).max(10000),
+            platforms: z.array(z.string().uuid()).min(1).describe('connection_id(s) aus list_connections.'),
+            scheduled_at: z.string().datetime().optional(),
+            scheduled_tz: z.string().min(1).max(64).optional(),
+            draft: z.boolean().optional(),
+            adapt_content: z.boolean().optional(),
+            first_comment: z.string().max(2000).optional(),
+          })
+        )
+        .min(1)
+        .max(100),
+    },
+    {},
+    async ({ posts }) => {
+      try {
+        const result = await client.bulkCreatePosts(posts);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'get_optimal_times',
+    'Zeigt die 3 besten Posting-Zeitfenster eines Accounts (aus Engagement der letzten Posts). ' +
+      'Braucht mindestens 30 veröffentlichte Posts auf der Connection. Ergebnis mit schedule_post kombinieren.',
+    {
+      connection_id: z.string().uuid().describe('connection_id aus list_connections.'),
+    },
+    { readOnlyHint: true },
+    async ({ connection_id }) => {
+      try {
+        const result = await client.getOptimalTimes(connection_id);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+
+  server.tool(
+    'get_posting_slot',
+    'Liefert den nächsten freien Slot aus dem Posting-Plan des Workspace für die angegebenen Accounts. ' +
+      'Nutze wenn: du planen willst, ohne Zeiten zu raten — erst Slot holen, dann create_post/schedule_post ' +
+      'mit dem gelieferten instant. Liefert slot: null, wenn kein Posting-Plan existiert.',
+    {
+      connection_ids: z.array(z.string().uuid()).min(1).max(20).describe('connection_id(s) aus list_connections.'),
+    },
+    { readOnlyHint: true },
+    async ({ connection_ids }) => {
+      try {
+        const result = await client.nextPostingSlot(connection_ids);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return toToolError(error);
@@ -193,7 +328,11 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
           'crowdsourcing',
         ])
         .optional(),
-      platform: PLATFORM_ENUM.optional().describe('Nur Vorlagen, die diese Plattform empfehlen.'),
+      platform: SCORE_PLATFORM_ENUM.optional().describe('Nur Vorlagen, die diese Plattform empfehlen.'),
+      format: z
+        .enum(['text', 'thread', 'carousel_pdf', 'image_text', 'poll'])
+        .optional()
+        .describe('Nur Vorlagen dieses Formats.'),
     },
     { readOnlyHint: true },
     async (input) => {
@@ -242,7 +381,7 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
       'kein API-Call — für Media-Regeln und Sonderfälle nutze adapt_content oder poste testweise.',
     {
       content: z.string().min(1),
-      platforms: PLATFORM_ENUM.array().min(1),
+      platforms: SCORE_PLATFORM_ENUM.array().min(1),
     },
     { readOnlyHint: true },
     async ({ content, platforms }) => {
@@ -267,7 +406,10 @@ export function registerPublishingTools(server: McpServer, client: ProloraClient
 const TEXT_LIMITS: Record<string, number> = {
   linkedin: 3000,
   x: 280,
-  bluesky: 300,
-  mastodon: 500,
+  bluesky: 300, // 300 Grapheme — hier als Zeichen genähert
+  mastodon: 500, // Default — echte Instanz-Limits können abweichen
   telegram: 4096,
+  discord: 2000,
+  devto: 10000,
+  hashnode: 10000,
 };

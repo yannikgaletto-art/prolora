@@ -336,3 +336,122 @@ export interface TemplateDraftResponse {
   };
   credits_used: number;
 }
+
+// --- GOAL-RUN10: Scheduling, Kalender, Bulk, Splinter, Timing ---
+
+export type CalendarGroupStatus = PostStatus | 'draft';
+
+export interface SchedulePostResponse {
+  post_group_id: string;
+  status: 'queued' | 'scheduled';
+  scheduled_at?: string;
+  items: number;
+}
+
+export interface CalendarItem {
+  post_item_id: string;
+  connection_id: string;
+  platform: string;
+  status: string;
+  platform_url: string | null;
+  error_message: string | null;
+}
+
+export interface CalendarGroup {
+  post_group_id: string;
+  scheduled_at: string | null;
+  scheduled_tz: string | null;
+  content_preview: string;
+  first_comment: string | null;
+  media_count: number;
+  created_via: string;
+  content_source_id: string | null;
+  group_status: CalendarGroupStatus;
+  items: CalendarItem[];
+}
+
+export interface CalendarResponse {
+  groups: CalendarGroup[];
+  /** Ungeplante Drafts (scheduled_at IS NULL) für die Seitenleiste. */
+  drafts: CalendarGroup[];
+  truncated: boolean;
+}
+
+export interface BulkItemResult {
+  index: number;
+  post_group_id?: string;
+  status?: string;
+  error?: string;
+}
+
+export interface BulkCreateResponse {
+  total: number;
+  created: number;
+  failed: number;
+  items: BulkItemResult[];
+}
+
+export interface ContentSourceDto {
+  id: string;
+  kind: 'paste' | 'url';
+  title: string | null;
+  source_url: string | null;
+  status: string;
+  body_preview: string;
+  body_chars: number;
+  splinter_count: number;
+  splintered_at: string | null;
+  created_at: string;
+}
+
+export interface CreateContentSourceResponse {
+  source: ContentSourceDto;
+}
+
+export interface ListContentSourcesResponse {
+  sources: ContentSourceDto[];
+}
+
+export interface SplinterSuggestion {
+  [key: string]: unknown;
+  platform?: string;
+  content?: string;
+}
+
+export interface SplinterResponse {
+  source_id: string;
+  core_ideas: unknown[];
+  suggestions: SplinterSuggestion[];
+  warnings: string[];
+  credits_used: number;
+}
+
+export interface PostingSlot {
+  instant: string;
+  timezone: string;
+  [key: string]: unknown;
+}
+
+export interface AcceptSplinterResponse extends CreatePostResponse {
+  slot: PostingSlot;
+  checks: unknown;
+  warnings?: string[];
+}
+
+export interface OptimalTimeWindow {
+  day_of_week: number;
+  hour_utc: number;
+  avg_engagement: number;
+  samples: number;
+}
+
+export interface OptimalTimesResponse {
+  connection_id: string;
+  platform: string;
+  published_posts: number;
+  windows: OptimalTimeWindow[];
+}
+
+export interface NextPostingSlotResponse {
+  slot: PostingSlot | null;
+}

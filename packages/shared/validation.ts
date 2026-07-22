@@ -122,7 +122,10 @@ export const templatePrefillSchema = z.object({
 
 export const templateDraftSchema = z.object({
   template_id: z.string().min(1).max(100),
-  slots: z.record(z.string(), z.string().max(500)),
+  // 4000 is the coarse ceiling for 'story' slots (GOAL-RUN9 D6). The real
+  // per-slot caps (500 non-story / 4000 story) live in the draft service,
+  // which knows the template — z.record cannot vary limits per key.
+  slots: z.record(z.string(), z.string().max(4000)),
   target_platforms: z
     .array(z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']))
     .min(1)
@@ -137,4 +140,51 @@ export const scorePostSchema = z.object({
   first_comment: z.string().max(2_000).optional(),
   language: z.string().length(2).optional(),
   connection_id: z.string().uuid().optional(),
+});
+
+// --- Product-to-Post (GOAL-RUN9) ---------------------------------------------
+
+export const proofAssetCreateSchema = z.object({
+  type: z.enum(['metric', 'customer_quote', 'founder_observation', 'case_study', 'experiment']),
+  content: z.string().min(3).max(2000),
+  source_url: z.string().url().optional(),
+});
+
+export const productProfileUpdateSchema = z.object({
+  product_description: z.string().max(2000).optional(),
+  target_audience: z.string().max(1000).optional(),
+  founder_perspective: z.string().max(1000).optional(),
+  core_value: z.array(z.string().min(1).max(200)).max(10).optional(),
+  brand_voice: z.array(z.string().min(1).max(50)).max(8).optional(),
+  taboo_topics: z.array(z.string().min(1).max(100)).max(8).optional(),
+});
+
+export const conceptSettingsSchema = z.object({
+  valueDensity: z.number().int().min(1).max(5),
+  length: z.enum(['short', 'medium', 'long']),
+  communityCommitment: z.number().int().min(1).max(5),
+  vulnerability: z.number().int().min(1).max(5),
+  tone: z.enum(['reflective', 'direct', 'provocative', 'educational']),
+  includeData: z.boolean(),
+  includeFramework: z.boolean(),
+  includeCTA: z.boolean(),
+});
+
+export const contentGoalSchema = z.enum([
+  'authority', 'community', 'productEducation', 'buildInPublic', 'conversion', 'personalStory',
+]);
+
+export const conceptRequestSchema = z.object({
+  content_goal: contentGoalSchema,
+  /** The angle card the user picked — free text also carries "Eigene Idee". */
+  angle: z.string().max(500).optional(),
+  user_idea: z.string().max(4000).optional(),
+  /** Answers to follow-up questions from a previous thin-material round. */
+  follow_up_answers: z.array(z.string().max(2000)).max(3).optional(),
+  settings: conceptSettingsSchema,
+  target_platforms: z
+    .array(z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']))
+    .min(1)
+    .max(5)
+    .default(['linkedin']),
 });
