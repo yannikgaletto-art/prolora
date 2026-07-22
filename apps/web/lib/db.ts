@@ -223,6 +223,18 @@ export interface WorkspaceContextRow {
   taboo_topics: string[];
 }
 
+/**
+ * Schema-drift guard (GOAL-RUN9 debug 2026-07-22): true when a query failed
+ * because a table/column from a not-yet-applied migration is missing.
+ * 42P01/42703 = Postgres undefined table/column; PGRST205/PGRST204 = the same
+ * conditions reported by PostgREST's schema cache. Read paths degrade to empty
+ * results on these; write paths surface a clear "migration pending" error —
+ * a page render must never 500 over a recoverable deployment-order gap.
+ */
+export function isMissingSchemaError(code: string | null | undefined): boolean {
+  return code === '42P01' || code === '42703' || code === 'PGRST205' || code === 'PGRST204';
+}
+
 // GOAL-RUN9 Phase 0 (Migration 012): anti-fabrication anchor for drafts.
 export interface ProofAssetRow {
   id: string;

@@ -1,7 +1,7 @@
 // Pattern library access (GOAL-RUN9 §7). Global curated rows (workspace_id
 // NULL) are visible to every workspace; workspace-owned rows only to theirs.
 // Service role bypasses RLS, so the OR filter here IS the tenancy boundary.
-import { getServiceDb, type ContentReferenceRow } from '@/lib/db';
+import { getServiceDb, isMissingSchemaError, type ContentReferenceRow } from '@/lib/db';
 
 const REFERENCE_COLUMNS =
   'id, workspace_id, platform, source_url, author_name, published_at, engagement, ' +
@@ -18,6 +18,12 @@ export async function listContentReferences(workspaceId: string): Promise<Conten
     .limit(100)
     .returns<ContentReferenceRow[]>();
   if (error) {
+    // Read path degrades: without the table the angle cards fall back to the
+    // lens definitions instead of crashing the Start tab.
+    if (isMissingSchemaError(error.code)) {
+      console.error('[patterns] content_references missing — apply migration 013:', error.message);
+      return [];
+    }
     throw new Error(`[patterns] reference list failed: ${error.message}`);
   }
   return data ?? [];

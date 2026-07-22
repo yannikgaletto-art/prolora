@@ -2,8 +2,15 @@
 // the profile lives in workspace_contexts, proof assets in their own table.
 // Every access is workspace-scoped (Invariante 2 — service role bypasses RLS).
 import type { ProductProfileResponse, ProofAsset } from '@prolora/shared';
-import { getServiceDb, type ProofAssetRow, type WorkspaceContextRow } from '@/lib/db';
+import { ApiError } from '@/lib/api/http';
+import { getServiceDb, isMissingSchemaError, type ProofAssetRow, type WorkspaceContextRow } from '@/lib/db';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
+
+const MIGRATION_PENDING = new ApiError(
+  503,
+  'Product profile storage is not set up yet — apply supabase/migrations/012_product_profile.sql.',
+  'migration_pending'
+);
 
 const PROOF_ASSET_COLUMNS = 'id, type, content, source_url, verified_at, created_at';
 const MAX_PROOF_ASSETS = 50;
@@ -29,6 +36,11 @@ export async function listProofAssets(workspaceId: string): Promise<ProofAsset[]
     .limit(MAX_PROOF_ASSETS)
     .returns<ProofAssetRow[]>();
   if (error) {
+    // Read path degrades: a missing table must not 500 the /product page.
+    if (isMissingSchemaError(error.code)) {
+      console.error('[product] proof_assets missing — apply migration 012:', error.message);
+      return [];
+    }
     throw new Error(`[product] proof asset list failed: ${error.message}`);
   }
   return (data ?? []).map(toProofAsset);
@@ -50,6 +62,7 @@ export async function createProofAsset(
     .select(PROOF_ASSET_COLUMNS)
     .single<ProofAssetRow>();
   if (error || !data) {
+    if (isMissingSchemaError(error?.code)) throw MIGRATION_PENDING;
     throw new Error(`[product] proof asset insert failed: ${error?.message ?? 'no row'}`);
   }
   return toProofAsset(data);
@@ -64,6 +77,7 @@ export async function deleteProofAsset(workspaceId: string, assetId: string): Pr
     .eq('id', assetId)
     .select('id');
   if (error) {
+    if (isMissingSchemaError(error.code)) return false;
     throw new Error(`[product] proof asset delete failed: ${error.message}`);
   }
   return (data ?? []).length > 0;
@@ -121,6 +135,7 @@ export async function updateProductProfile(
     .from('workspace_contexts')
     .upsert(payload, { onConflict: 'workspace_id' });
   if (error) {
+    if (isMissingSchemaError(error.code)) throw MIGRATION_PENDING;
     throw new Error(`[product] profile upsert failed: ${error.message}`);
   }
 }
