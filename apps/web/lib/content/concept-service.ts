@@ -369,6 +369,30 @@ export async function generateConcepts(
     console.error('[concepts] usage log failed:', usageError.message);
   }
 
+  // Vault Phase 0 (T4.2): substantial raw material becomes a reusable proof
+  // asset (founder_observation) — told once, usable in every future draft.
+  // Best-effort: a failure here must never eat the generated concepts.
+  const rawMaterial = input.user_idea?.trim();
+  if (rawMaterial && rawMaterial.length >= 200) {
+    const content = rawMaterial.slice(0, 2000);
+    const { data: existing, error: lookupError } = await db
+      .from('proof_assets')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('content', content)
+      .limit(1);
+    if (!lookupError && (existing ?? []).length === 0) {
+      const { error: insertError } = await db.from('proof_assets').insert({
+        workspace_id: workspaceId,
+        type: 'founder_observation',
+        content,
+      });
+      if (insertError) {
+        console.error('[concepts] raw material save failed:', insertError.message);
+      }
+    }
+  }
+
   return {
     concepts,
     follow_up_questions: followUps && followUps.length > 0 ? followUps : undefined,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { PostTemplate, ProofAsset } from '@prolora/shared';
 import { DEFAULT_CONCEPT_SETTINGS } from '@prolora/shared';
+import { TEMPLATE_CATALOG } from '@/lib/templates/catalog';
 import { buildTemplatePrompt, LONGFORM_MIN_BUDGET } from '@/lib/templates/render-prompt';
 import { truncateAtParagraph } from '@/lib/templates/draft-service';
 import { missingLenses, settingsToPromptLines } from '@/lib/content/concept-service';
@@ -79,6 +80,27 @@ describe('longform prompt mode (GOAL-RUN9 D6)', () => {
     });
     expect(prompt.lengthFloor).toBeNull();
     expect(prompt.system).toContain('Every sentence must earn its place');
+  });
+});
+
+describe('catalog longform invariants (GOAL-RUN9 T4.3)', () => {
+  test('every longform template has exactly one required story slot', () => {
+    const longformTemplates = TEMPLATE_CATALOG.filter((t) => t.narrative === 'longform');
+    expect(longformTemplates.length).toBeGreaterThanOrEqual(2);
+    for (const template of longformTemplates) {
+      const storySlots = template.slots.filter((slot) => slot.kind === 'story');
+      expect(storySlots.length, template.id).toBe(1);
+      expect(storySlots[0]?.required, template.id).toBe(true);
+    }
+  });
+
+  test('story slots never appear in non-longform templates', () => {
+    for (const template of TEMPLATE_CATALOG.filter((t) => t.narrative !== 'longform')) {
+      expect(
+        template.slots.some((slot) => slot.kind === 'story'),
+        template.id
+      ).toBe(false);
+    }
   });
 });
 

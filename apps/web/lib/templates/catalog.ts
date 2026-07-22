@@ -615,8 +615,9 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       'Alle hypen [produkt]. Ich habe es ausprobiert — mein Fazit ist differenzierter.',
     ],
     cta_mechanic: 'none',
-    style_preset: 'neutral',
+    style_preset: 'abdaal_evidence',
     format: 'text',
+    narrative: 'longform',
     recommended_platforms: ['linkedin', 'mastodon', 'x'],
     anlass_keys: ['meinung'],
     strategy: {
@@ -656,10 +657,10 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
       {
         key: 'staerken',
-        question: 'Deine 2–3 echten Stärken (kommagetrennt)',
-        help: 'Konkret mit Situation — was hat dich wirklich überzeugt?',
-        example: 'Meeting-Notizen in Sekunden, versteht deutschen Kontext',
-        kind: 'erfahrung',
+        question: 'Erzähl deine Nutzung: Was war stark, was hat genervt, welcher Moment ist hängen geblieben?',
+        help: 'Sprich einfach drauflos (Diktat reicht) — konkrete Situationen machen das Fazit glaubwürdig. Erfunden wird nichts.',
+        example: 'In Woche 2 hab ich gemerkt, dass … Richtig überzeugt hat mich, als …',
+        kind: 'story',
         required: true,
       },
       {
@@ -822,13 +823,14 @@ export const TEMPLATE_CATALOG: PostTemplate[] = [
       },
       {
         key: 'hebel',
-        question: 'Was war der EINE Hebel, der es ausgemacht hat?',
-        help: 'Deine echte Erkenntnis — die Brücke zwischen Vorher und Nachher.',
-        example: 'Feste Posting-Routine statt Inspiration abwarten',
-        kind: 'erfahrung',
+        question: 'Erzähl den Weg dazwischen: Was war der Hebel, was ging schief, wie hat es sich angefühlt?',
+        help: 'Sprich einfach 2–3 Minuten (Diktat reicht, unsortiert ist okay) — je mehr echte Details, desto persönlicher der Post. Erfunden wird nichts.',
+        example: 'Ich hab drei Monate lang jeden Abend … Der Wendepunkt kam, als …',
+        kind: 'story',
         required: true,
       },
     ],
+    narrative: 'longform',
     prompt_hints:
       'BAB-Logik: (1) Before — den alten Zustand so konkret schmerzhaft beschreiben, dass der Leser ' +
       'sich wiedererkennt. EINE Zahl, EINE Situation, EIN Gefühl. (2) Bridge — der EINE Hebel, ' +

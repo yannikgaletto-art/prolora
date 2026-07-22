@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { TEMPLATE_CATALOG, getTemplateById } from '@/lib/templates/catalog';
 
-const SLOT_KINDS = ['fact', 'erfahrung', 'angle'] as const;
+const SLOT_KINDS = ['fact', 'erfahrung', 'angle', 'story'] as const;
 const AUFWAND = ['niedrig', 'mittel', 'hoch'] as const;
 const POST_TYPES = [
   'value_edu',

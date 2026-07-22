@@ -59,7 +59,10 @@ export function SlotField({
         <textarea
           id={fieldId}
           ref={textareaRef}
-          rows={2}
+          // GOAL-RUN9 D6: 'story' slots collect long-form raw material — give
+          // dictation room to breathe instead of a two-line strip.
+          rows={slot.kind === 'story' ? 8 : 2}
+          maxLength={slot.kind === 'story' ? 4000 : 500}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={slot.placeholder}
