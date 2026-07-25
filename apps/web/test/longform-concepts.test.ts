@@ -57,29 +57,76 @@ describe('longform prompt mode (GOAL-RUN9 D6)', () => {
     expect(prompt.system).toContain('Length target');
   });
 
-  test('X in the targets forces the punchy fallback (budget < 1500)', () => {
+  // D6 revision: a narrow co-target must NOT shrink the draft any more. The
+  // draft follows the lead channel; X gets its own version via adapt-content.
+  test('X alongside LinkedIn keeps the LinkedIn budget and flags X as narrower', () => {
     const prompt = buildTemplatePrompt({
       template: longformTemplate,
       slots: { geschichte: 'Meine Geschichte' },
       targetPlatforms: ['linkedin', 'x'],
       context: null,
     });
+    expect(prompt.characterBudget).toBe(3000);
+    expect(prompt.budgetPlatform).toBe('linkedin');
+    expect(prompt.narrowerTargets).toEqual(['x']);
+    expect(prompt.longformFallback).toBe(false);
+    expect(prompt.lengthFloor).toBe(Math.floor(3000 * 0.6));
+    expect(prompt.system).toContain('Narrative arc');
+    expect(prompt.system).toContain('Do NOT shrink it');
+  });
+
+  test('X as the only target still falls back to punchy mode', () => {
+    const prompt = buildTemplatePrompt({
+      template: longformTemplate,
+      slots: { geschichte: 'Meine Geschichte' },
+      targetPlatforms: ['x'],
+      context: null,
+    });
     expect(prompt.characterBudget).toBeLessThan(LONGFORM_MIN_BUDGET);
-    expect(prompt.lengthFloor).toBeNull();
+    expect(prompt.narrowerTargets).toEqual([]);
     expect(prompt.longformFallback).toBe(true);
     expect(prompt.system).toContain('cannot hold a story');
     expect(prompt.system).not.toContain('Narrative arc');
+    expect(prompt.system).not.toContain('Do NOT shrink it');
   });
 
-  test('non-longform templates keep the punchy structure rules', () => {
+  test('non-longform templates keep the punchy structure rules but get a floor', () => {
     const prompt = buildTemplatePrompt({
       template: { ...longformTemplate, narrative: undefined },
       slots: { geschichte: 'x' },
       targetPlatforms: ['linkedin'],
       context: null,
     });
-    expect(prompt.lengthFloor).toBeNull();
+    expect(prompt.lengthFloor).toBe(Math.floor(3000 * 0.35));
     expect(prompt.system).toContain('Every sentence must earn its place');
+    expect(prompt.system).toContain('Length target');
+  });
+
+  // The regression from the reported screenshot: 6-part structure collapsed
+  // into 267 characters because X capped the budget.
+  test('the data-insight catalog template gets the LinkedIn budget, not 280', () => {
+    const template = TEMPLATE_CATALOG.find((t) => t.id === 'value-data-insight');
+    expect(template).toBeDefined();
+    const prompt = buildTemplatePrompt({
+      template: template!,
+      slots: Object.fromEntries(template!.slots.map((slot) => [slot.key, 'Antwort'])),
+      targetPlatforms: template!.recommended_platforms,
+      context: null,
+    });
+    expect(prompt.characterBudget).toBe(3000);
+    expect(prompt.lengthFloor).toBeGreaterThan(280);
+  });
+
+  test('slide templates keep a caption-sized content field (no floor)', () => {
+    const slideTemplate = TEMPLATE_CATALOG.find((t) => t.format === 'carousel_pdf');
+    expect(slideTemplate).toBeDefined();
+    const prompt = buildTemplatePrompt({
+      template: slideTemplate!,
+      slots: Object.fromEntries(slideTemplate!.slots.map((slot) => [slot.key, 'Antwort'])),
+      targetPlatforms: slideTemplate!.recommended_platforms,
+      context: null,
+    });
+    expect(prompt.lengthFloor).toBeNull();
   });
 });
 

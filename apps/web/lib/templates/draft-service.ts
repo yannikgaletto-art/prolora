@@ -73,7 +73,15 @@ export async function generateTemplateDraft(
       response = await client.messages.create({
         model: AI_MODEL,
         // Longform story drafts (GOAL-RUN9 D6) need headroom for ~3000 chars.
-        max_tokens: template.narrative === 'longform' ? 4096 : 2048,
+        // Since the budget follows the LEAD channel, a wide target (Telegram
+        // 4096) can exceed the old ceiling — scale with it, never below it.
+        max_tokens: Math.min(
+          8192,
+          Math.max(
+            template.narrative === 'longform' ? 4096 : 2048,
+            Math.ceil(prompt.characterBudget / 2) + 512
+          )
+        ),
         system: prompt.system,
         messages: [{ role: 'user', content: `${prompt.user}${strictNote}` }],
         tools: [
@@ -143,12 +151,13 @@ export async function generateTemplateDraft(
       continue;
     }
     if (prompt.lengthFloor !== null && length < prompt.lengthFloor) {
-      // Under the longform floor -> one mirror retry (GOAL-RUN9 D6). The floor
-      // never beats anti-fabrication: the note says "use the material", not
-      // "make things up".
+      // Under the floor -> one mirror retry (GOAL-RUN9 D6, extended to punchy
+      // templates). The floor never beats anti-fabrication: the note says
+      // "use the material", not "make things up".
       strictNote =
-        `\n\nSTRICT: your last attempt had only ${length} characters — this long-form story targets ` +
-        `${prompt.lengthFloor}–${prompt.characterBudget}. Use MORE of the concrete details from the raw ` +
+        `\n\nSTRICT: your last attempt had only ${length} characters — this draft targets ` +
+        `${prompt.lengthFloor}–${prompt.characterBudget} for ${prompt.budgetPlatform}. Work through ` +
+        'EVERY section of the script structure and use MORE of the concrete details from the raw ' +
         'material (do NOT invent new ones). If the material genuinely cannot carry more, keep it short.';
       continue;
     }

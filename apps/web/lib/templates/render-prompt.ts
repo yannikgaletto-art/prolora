@@ -159,12 +159,23 @@ export interface TemplatePrompt {
   lengthFloor: number | null;
   /** True when a longform template fell back to punchy mode (budget < 1500). */
   longformFallback: boolean;
+  /** Targets whose own limit is below the lead-channel budget (need per-platform adaptation). */
+  narrowerTargets: PlatformType[];
 }
 
 // D6: below this budget a narrative arc physically cannot unfold — the
 // longform template auto-falls back to punchy mode and the UI says so.
 export const LONGFORM_MIN_BUDGET = 1500;
 export const LONGFORM_FLOOR_RATIO = 0.6;
+
+// D6 revision: a draft used to be written for the TIGHTEST target, so one X
+// target (280) collapsed a six-part LinkedIn structure into a tweet. The draft
+// is now written for the LEAD channel (widest limit); narrower targets get
+// their own shortened version through the existing per-platform adaptation
+// (lib/ai/adapt-content.ts). Single-target drafts are unaffected.
+// Punchy templates get a floor too — an LLM with only a ceiling always writes
+// short. Slide templates are exempt: their "content" is just the caption.
+export const PUNCHY_FLOOR_RATIO = 0.35;
 
 // Story-arc rules (GOAL-RUN9 §5 resonance schema). Replaces the punchy
 // "Structure" subsection for longform templates — Voice/Tension/Anti-pattern
@@ -188,15 +199,23 @@ const STRUCTURE_RULES_LONGFORM = [
 export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt {
   const { template, slots, targetPlatforms, context } = input;
 
-  let characterBudget = Number.POSITIVE_INFINITY;
-  let budgetPlatform: PlatformType = targetPlatforms[0];
-  for (const platform of targetPlatforms) {
+  // Lead channel = widest limit among the targets (see PUNCHY_FLOOR_RATIO note).
+  // The API guarantees at least one target (validation.ts .min(1)); the fallback
+  // keeps a direct caller from ending up with a 0-character budget, which would
+  // truncate every draft to nothing.
+  const platforms: PlatformType[] = targetPlatforms.length > 0 ? targetPlatforms : ['linkedin'];
+  let characterBudget = 0;
+  let budgetPlatform: PlatformType = platforms[0];
+  for (const platform of platforms) {
     const limit = getPlatformRules(platform).max_text_length;
-    if (limit < characterBudget) {
+    if (limit > characterBudget) {
       characterBudget = limit;
       budgetPlatform = platform;
     }
   }
+  const narrowerTargets = platforms.filter(
+    (platform) => getPlatformRules(platform).max_text_length < characterBudget
+  );
 
   const language = context?.voice_language?.trim() || 'de';
   const tone = context?.voice_tone?.trim() || 'casual';
@@ -208,7 +227,10 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
   const wantsLongform = template.narrative === 'longform';
   const longform = wantsLongform && characterBudget >= LONGFORM_MIN_BUDGET;
   const longformFallback = wantsLongform && !longform;
-  const lengthFloor = longform ? Math.floor(characterBudget * LONGFORM_FLOOR_RATIO) : null;
+  // Slide templates keep "content" as a short caption — a floor would inflate it.
+  const lengthFloor = wantsSlides
+    ? null
+    : Math.floor(characterBudget * (longform ? LONGFORM_FLOOR_RATIO : PUNCHY_FLOOR_RATIO));
 
   const system = [
     'You are a social media ghostwriter for the DACH B2B market. You draft ONE post from a curated',
@@ -246,11 +268,22 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     'Target platforms and their rules:',
     ...targetPlatforms.map((p) => `- ${PLATFORM_NOTES[p]}`),
     '',
-    `Hard length budget for "content": ${characterBudget} characters (tightest target platform: ${budgetPlatform}).`,
+    `Hard length budget for "content": ${characterBudget} characters (lead channel: ${budgetPlatform}).`,
+    ...(narrowerTargets.length > 0
+      ? [
+          `Write the full version for ${budgetPlatform}. Do NOT shrink it to fit ${narrowerTargets.join(
+            ', '
+          )} — those channels get their own shortened version later. Writing for the smallest channel ` +
+            'would waste the space the lead channel gives you.',
+        ]
+      : []),
     ...(lengthFloor !== null
       ? [
-          `Length target: this is a long-form story — aim for ${lengthFloor}–${characterBudget} characters. ` +
-            'Under the floor is only acceptable when the raw material is genuinely too thin (anti-fabrication wins over length).',
+          `Length target: aim for ${lengthFloor}–${characterBudget} characters${
+            longform ? ' — this is a long-form story' : ''
+          }. Deliver every part of the script structure below; a draft that stops after the first two ` +
+            'sections is incomplete. Under the floor is only acceptable when the raw material is ' +
+            'genuinely too thin (anti-fabrication wins over length).',
         ]
       : []),
     ...(longformFallback
@@ -292,5 +325,13 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     ctaInstruction(template.cta_mechanic, targetPlatforms, slots),
   ].join('\n');
 
-  return { system, user, characterBudget, budgetPlatform, lengthFloor, longformFallback };
+  return {
+    system,
+    user,
+    characterBudget,
+    budgetPlatform,
+    lengthFloor,
+    longformFallback,
+    narrowerTargets,
+  };
 }
