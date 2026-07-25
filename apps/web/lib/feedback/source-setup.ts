@@ -14,23 +14,11 @@ export function buildWidgetCurl(appUrl: string, workspaceSlug: string): string {
   ].join('\n');
 }
 
-export function listenEmptyState(hasSources: boolean): {
-  title: string;
-  description: string;
-  showSourceSetup: boolean;
-} {
-  return hasSources
-    ? {
-        title: 'No feedback matches these filters',
-        description: 'Try widening your filters, or check back once new feedback arrives.',
-        showSourceSetup: false,
-      }
-    : {
-        title: 'Noch keine Quelle verbunden',
-        description: 'Starte mit dem Feedback-Widget — es braucht keinen API-Key und ist in etwa zwei Minuten eingerichtet.',
-        showSourceSetup: true,
-      };
-}
+// The Listen empty-state copy used to live here as hardcoded strings — one
+// German, one English, on the same screen. It now comes from the locale
+// dictionary (lib/i18n/run7.ts, `listen.empty*`); which of the three cases
+// applies is decided in the page from hasFilters / hasAnyFeedback /
+// anySourceConnected.
 
 export async function getFeedbackSources(workspaceId: string): Promise<FeedbackSourceRow[]> {
   const db = getServiceDb();

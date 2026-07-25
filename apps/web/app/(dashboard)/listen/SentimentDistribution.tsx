@@ -1,4 +1,5 @@
-import type { FeedbackSentiment } from '@prolora/shared';
+import type { AppLocale, FeedbackSentiment } from '@prolora/shared';
+import { getRun7Dict } from '@/lib/i18n/run7';
 
 const SENTIMENT_ORDER: FeedbackSentiment[] = ['positive', 'neutral', 'mixed', 'negative'];
 
@@ -9,26 +10,24 @@ const SENTIMENT_BAR_COLOR: Record<FeedbackSentiment, string> = {
   negative: 'bg-red-500',
 };
 
-const SENTIMENT_LABEL: Record<FeedbackSentiment, string> = {
-  positive: 'Positive',
-  neutral: 'Neutral',
-  mixed: 'Mixed',
-  negative: 'Negative',
-};
-
 export interface SentimentDistributionProps {
   bySentiment: Record<FeedbackSentiment, number>;
+  locale: AppLocale;
 }
 
 // Pure-CSS stacked bar — no chart library.
-export function SentimentDistribution({ bySentiment }: SentimentDistributionProps) {
+export function SentimentDistribution({ bySentiment, locale }: SentimentDistributionProps) {
+  const dict = getRun7Dict(locale).listen;
   const total = SENTIMENT_ORDER.reduce((sum, key) => sum + bySentiment[key], 0);
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-5 py-4">
-      <p className="text-sm font-medium text-gray-900">Sentiment distribution (30d)</p>
+      <p className="text-sm font-medium text-gray-900">
+        {dict.sentimentTitle}{' '}
+        <span className="font-normal text-gray-500">· {dict.window30d}</span>
+      </p>
       {total === 0 ? (
-        <p className="mt-3 text-sm text-gray-500">No feedback in this period yet.</p>
+        <p className="mt-3 text-sm text-gray-500">{dict.sentimentEmpty}</p>
       ) : (
         <>
           <div className="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-gray-100">
@@ -40,7 +39,7 @@ export function SentimentDistribution({ bySentiment }: SentimentDistributionProp
                   key={key}
                   className={SENTIMENT_BAR_COLOR[key]}
                   style={{ width: `${(count / total) * 100}%` }}
-                  title={`${SENTIMENT_LABEL[key]}: ${count}`}
+                  title={`${dict.sentimentLabels[key]}: ${count}`}
                 />
               );
             })}
@@ -49,7 +48,7 @@ export function SentimentDistribution({ bySentiment }: SentimentDistributionProp
             {SENTIMENT_ORDER.map((key) => (
               <div key={key} className="flex items-center gap-1.5 text-xs text-gray-600">
                 <span className={`h-2 w-2 rounded-full ${SENTIMENT_BAR_COLOR[key]}`} />
-                {SENTIMENT_LABEL[key]}
+                {dict.sentimentLabels[key]}
                 <span className="text-gray-400">
                   {bySentiment[key]} ({total > 0 ? Math.round((bySentiment[key] / total) * 100) : 0}
                   %)

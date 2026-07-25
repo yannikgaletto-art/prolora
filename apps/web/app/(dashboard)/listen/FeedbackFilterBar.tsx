@@ -2,41 +2,37 @@
 
 import { type FormEvent, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import type { AppLocale } from '@prolora/shared';
 import { Input } from '@/app/components/Input';
 import { Select } from '@/app/components/Select';
 import { Button } from '@/app/components/Button';
-
-const SENTIMENT_OPTIONS = [
-  { value: 'positive', label: 'Positive' },
-  { value: 'negative', label: 'Negative' },
-  { value: 'neutral', label: 'Neutral' },
-  { value: 'mixed', label: 'Mixed' },
-];
-
-const CATEGORY_OPTIONS = [
-  { value: 'bug', label: 'Bug' },
-  { value: 'feature_request', label: 'Feature request' },
-  { value: 'praise', label: 'Praise' },
-  { value: 'complaint', label: 'Complaint' },
-  { value: 'question', label: 'Question' },
-  { value: 'other', label: 'Other' },
-];
-
-const URGENCY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
-];
+import { getRun7Dict } from '@/lib/i18n/run7';
 
 // Client island: owns no server data, only rewrites the URL's search params.
 // The Server Component page re-renders with the new params and re-queries
 // through lib/feedback/list-feedback.ts.
-export function FeedbackFilterBar() {
+//
+// The source/platform filter deliberately does NOT live here: SourceRail owns
+// it. Two controls for one concept is how the old bar ended up with a
+// free-text "Platform" box whose only guidance was a made-up example value.
+export function FeedbackFilterBar({ locale }: { locale: AppLocale }) {
+  const dict = getRun7Dict(locale).listen;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
+
+  const sentimentOptions = (['positive', 'negative', 'neutral', 'mixed'] as const).map((value) => ({
+    value,
+    label: dict.sentimentLabels[value],
+  }));
+  const categoryOptions = (
+    ['bug', 'feature_request', 'praise', 'complaint', 'question', 'other'] as const
+  ).map((value) => ({ value, label: dict.categoryLabels[value] }));
+  const urgencyOptions = (['low', 'medium', 'high', 'critical'] as const).map((value) => ({
+    value,
+    label: dict.urgencyLabels[value],
+  }));
 
   function apply(next: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -63,43 +59,35 @@ export function FeedbackFilterBar() {
     >
       <div className="flex flex-wrap items-end gap-3">
         <Input
-          label="Search"
-          placeholder="Search feedback content…"
+          label={dict.search}
+          placeholder={dict.searchPlaceholder}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className="min-w-[220px] flex-1"
         />
 
-        <Input
-          label="Platform"
-          placeholder="e.g. app_store"
-          defaultValue={searchParams.get('platform') ?? ''}
-          onBlur={(event) => apply({ platform: event.target.value.trim() || null })}
-          className="w-40"
-        />
-
         <Select
-          label="Sentiment"
-          placeholder="All"
-          options={SENTIMENT_OPTIONS}
+          label={dict.sentimentFilter}
+          placeholder={dict.all}
+          options={sentimentOptions}
           value={searchParams.get('sentiment') ?? ''}
           onChange={(event) => apply({ sentiment: event.target.value || null })}
           className="w-40"
         />
 
         <Select
-          label="Category"
-          placeholder="All"
-          options={CATEGORY_OPTIONS}
+          label={dict.categoryFilter}
+          placeholder={dict.all}
+          options={categoryOptions}
           value={searchParams.get('category') ?? ''}
           onChange={(event) => apply({ category: event.target.value || null })}
           className="w-44"
         />
 
         <Select
-          label="Urgency"
-          placeholder="All"
-          options={URGENCY_OPTIONS}
+          label={dict.urgencyFilter}
+          placeholder={dict.all}
+          options={urgencyOptions}
           value={searchParams.get('urgency') ?? ''}
           onChange={(event) => apply({ urgency: event.target.value || null })}
           className="w-36"
@@ -112,12 +100,12 @@ export function FeedbackFilterBar() {
             onChange={(event) => apply({ is_duplicate: event.target.checked ? 'false' : null })}
             className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-600"
           />
-          Hide duplicates
+          {dict.hideDuplicates}
         </label>
 
         <div className="flex items-end gap-2 pb-0.5">
           <Button type="submit" variant="secondary" size="sm">
-            Apply search
+            {dict.applySearch}
           </Button>
           {hasFilters && (
             <Button
@@ -129,7 +117,7 @@ export function FeedbackFilterBar() {
                 router.push(pathname);
               }}
             >
-              Clear
+              {dict.clear}
             </Button>
           )}
         </div>
