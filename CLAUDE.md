@@ -52,6 +52,7 @@ Unter `1) Architekture/` liegt kein Prosa-Design-Dokument, sondern eine Reihe **
 
 **Projektstatus:** Alle drei GOAL-RUN-Phasen sind laut Code-Zustand durchlaufen (0 TODOs, `tsc --noEmit` sauber in beiden Apps, 26/27 MCP-Tools). Das Projekt befindet sich in einer **Polish-/Lückenschluss-Phase**, nicht im Erstaufbau. Bekannte offene Punkte:
 - GOAL-RUN8 (2026-07-18): Phasen 1–4 sind implementiert und verifiziert: Impact-Coach, Prognose↔Realität, Creator-Stil-Präferenz sowie DST-sichere Auto-Kalender-Slots inkl. 30-Minuten-Wait-to-Link. Migrationen 009–011 wurden nach bestätigten STOP-Gates lokal dokumentiert und live angewendet.
+- Migration **014_workspace_integrations** (2026-07-25): Reddit-App-Credentials sind jetzt **workspace-eigen** und werden im UI eingegeben (`lib/integrations/reddit-credentials.ts`, `PUT /api/v1/integrations/reddit`), AES-256-GCM-verschlüsselt in `workspace_integrations`. Auflösungsreihenfolge: Workspace-Zeile vor `REDDIT_CLIENT_ID`/`_SECRET` aus der Env (Env bleibt Fallback). `getRedditClient()` gibt es nicht mehr — stattdessen `getRedditClientForWorkspace(workspaceId)`; der Token-Cache ist pro `client_id` gekeyed. **Die Migration ist im Repo, aber noch nicht live angewendet** — bis dahin greift der Env-Fallback und Speichern liefert 503 `migration_pending`.
 - MCP-Tool `get_usage` fehlt (COULD-Priorität, Credit-Verbrauch abfragen).
 - Daily-Digest-E-Mail-Templates sind ein bewusster No-Op-Stub (`lib/inngest/functions/metrics-webhooks.ts`, Resend-Integration).
 
@@ -140,8 +141,9 @@ cd apps/mcp-server && npm run build && npm start
 ## Wichtige Lücken im Tooling — worauf achten
 
 - **Git**: `prolora/` ist versioniert und auf GitHub gespiegelt (privates Repo `yannikgaletto-art/prolora`, verbunden mit Vercel für Auto-Deploys auf `main`). Der übergeordnete Ordner (Architektur-Docs, Knowledge Database) ist weiterhin **nicht** versioniert — sei dort vorsichtig bei destruktiven Dateioperationen.
-- **Keine Tests.** Kein `vitest`/`jest`, keine `*.test.ts`-Dateien. Verifikation läuft aktuell nur über `tsc --noEmit` und die "Verhaltens-Oracles" aus den GOAL-RUN-Docs (manuelles/Agent-Durchspielen von Flows). Wenn du testbaren Code hinzufügst, sprich mit dem Nutzer ab, ob ein Test-Setup eingeführt werden soll — es existiert noch keine Konvention dafür.
-- **Kein CI.** Keine `.github/workflows`. `tsc --noEmit` in beiden Apps vor Abschluss einer Aufgabe manuell laufen lassen.
+- **Tests: `vitest`** in `apps/web/test/` (Stand 2026-07-25: 48 Dateien / 254 Tests), Ausführung mit `npm test` bzw. `npx vitest run` aus `apps/web`. Reine Logik-/Unit-Tests ohne DB: externe Ränder (Supabase-Client, `fetch`, Anthropic) werden per `vi.mock` gestubbt. Neue nicht-triviale Logik bitte mit Test absichern und dem bestehenden Stil folgen.
+- **`npm run lint` ist nicht nutzbar** — `next lint` ist in Next 15 entfernt und startet einen interaktiven ESLint-Setup-Prompt. Nicht ungefragt konfigurieren.
+- **Kein CI.** Keine `.github/workflows`. `tsc --noEmit` in beiden Apps + `npx vitest run` vor Abschluss einer Aufgabe manuell laufen lassen.
 
 ## Checkliste, bevor du eine Aufgabe als fertig meldest
 

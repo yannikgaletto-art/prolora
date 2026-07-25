@@ -1,5 +1,6 @@
 import { getServiceDb, type DiscoveryCommunityRow, type WorkspaceContextRow } from '@/lib/db';
-import { getRedditClient, type RedditThread } from './reddit-client';
+import type { RedditThread } from './reddit-client';
+import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
 import { checkCooldown } from './cooldown-tracker';
 import { evaluateThreads, type EvaluationUsage } from '@/lib/ai/evaluate-threads';
 
@@ -24,7 +25,7 @@ export async function scanCommunity(
   context: WorkspaceContextRow
 ): Promise<RadarScanResult> {
   const db = getServiceDb();
-  const reddit = getRedditClient();
+  const reddit = await getRedditClientForWorkspace(community.workspace_id);
 
   const keywords = (community.keywords.length > 0 ? community.keywords : context.suggested_keywords)
     .map((k) => k.toLowerCase())

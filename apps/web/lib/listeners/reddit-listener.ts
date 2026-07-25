@@ -1,5 +1,6 @@
 import type { FeedbackSourceRow } from '@/lib/db';
-import { getRedditClient, type RedditThread } from '@/lib/discovery/reddit-client';
+import type { RedditThread } from '@/lib/discovery/reddit-client';
+import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
 import {
   BaseListener,
   type ListenerPollOutcome,
@@ -13,8 +14,8 @@ interface RedditSourceConfig {
 }
 
 // Polls Reddit for brand mentions: for every subreddit x keyword pair it
-// runs a keyword search (sort=new) via the shared app-only RedditClient and
-// keeps only threads newer than the stored cursor (max created_utc seen).
+// runs a keyword search (sort=new) via the workspace's app-only RedditClient
+// and keeps only threads newer than the stored cursor (max created_utc seen).
 export class RedditListener extends BaseListener {
   readonly sourceType = 'reddit';
 
@@ -29,7 +30,7 @@ export class RedditListener extends BaseListener {
 
     // Cursor = newest created_utc (seconds) already ingested.
     const cursorTs = parseCursor(source.last_poll_cursor);
-    const client = getRedditClient();
+    const client = await getRedditClientForWorkspace(source.workspace_id);
     const seen = new Set<string>();
     const items: RawFeedbackItem[] = [];
     let maxTs = cursorTs ?? 0;

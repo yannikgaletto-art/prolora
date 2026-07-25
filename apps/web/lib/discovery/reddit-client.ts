@@ -1,17 +1,70 @@
 // Reddit API wrapper — Application-Only auth (client_credentials).
-// Prolora reads Reddit with its OWN app key. It NEVER acts as the user and
+// Prolora reads Reddit with a registered app key. It NEVER acts as the user and
 // NEVER creates posts or comments (Invarianten D1/D2).
+//
+// This module deliberately knows nothing about where credentials are stored:
+// it is handed a resolved pair. Resolution (workspace row -> env fallback)
+// lives in lib/integrations/reddit-credentials.ts, which imports from here —
+// putting the lookup in this file instead would make that a cycle.
 
 const TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
 const API = 'https://oauth.reddit.com';
 const USER_AGENT = 'web:prolora:v1.0 (DACH feedback & publishing SaaS)';
+
+export interface RedditCredentials {
+  clientId: string;
+  clientSecret: string;
+}
 
 interface CachedToken {
   accessToken: string;
   expiresAt: number;
 }
 
-let cachedToken: CachedToken | null = null;
+// Keyed by client_id: two workspaces with different Reddit apps must never
+// share a token. (The previous module-level single cache would have handed
+// workspace B the token minted with workspace A's credentials.)
+const tokenCache = new Map<string, CachedToken>();
+
+/**
+ * One client_credentials round-trip. Exported so the setup UI can verify a
+ * pasted key pair against Reddit *before* anything is persisted.
+ */
+export async function requestRedditToken(
+  credentials: RedditCredentials
+): Promise<{ accessToken: string; expiresIn: number }> {
+  const basic = Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString('base64');
+  const response = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': USER_AGENT,
+    },
+    body: new URLSearchParams({ grant_type: 'client_credentials' }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Reddit rejected these credentials (401). Check client ID and secret.');
+  }
+  if (response.status === 429) {
+    throw new Error('Reddit rate limit hit while verifying. Try again in a minute.');
+  }
+  if (!response.ok) {
+    throw new Error(`Reddit token request failed: HTTP ${response.status}`);
+  }
+
+  const json = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!json.access_token) {
+    // Reddit answers 200 with {"error":"invalid_grant"} when the app type is
+    // wrong — "script" apps cannot use client_credentials, "web app" can.
+    throw new Error(
+      'Reddit returned no access token. Make sure the app type is "web app" or "script" and the secret is current.'
+    );
+  }
+  return { accessToken: json.access_token, expiresIn: json.expires_in ?? 86400 };
+}
 
 export interface RedditSubreddit {
   display_name: string;
@@ -43,39 +96,22 @@ export interface RedditRule {
 }
 
 export class RedditClient {
+  constructor(private readonly credentials: RedditCredentials) {}
+
   // Token lives 24h — cache and refresh 5 minutes early.
   private async getToken(): Promise<string> {
-    if (cachedToken && cachedToken.expiresAt > Date.now() + 5 * 60 * 1000) {
-      return cachedToken.accessToken;
+    const cacheKey = this.credentials.clientId;
+    const cached = tokenCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() + 5 * 60 * 1000) {
+      return cached.accessToken;
     }
 
-    const clientId = process.env.REDDIT_CLIENT_ID;
-    const clientSecret = process.env.REDDIT_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-      throw new Error('REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET not configured');
-    }
-
-    const response = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': USER_AGENT,
-      },
-      body: new URLSearchParams({ grant_type: 'client_credentials' }),
+    const { accessToken, expiresIn } = await requestRedditToken(this.credentials);
+    tokenCache.set(cacheKey, {
+      accessToken,
+      expiresAt: Date.now() + expiresIn * 1000,
     });
-    if (!response.ok) {
-      throw new Error(`Reddit token request failed: HTTP ${response.status}`);
-    }
-    const json = (await response.json()) as { access_token?: string; expires_in?: number };
-    if (!json.access_token) {
-      throw new Error('Reddit token response missing access_token');
-    }
-    cachedToken = {
-      accessToken: json.access_token,
-      expiresAt: Date.now() + (json.expires_in ?? 86400) * 1000,
-    };
-    return cachedToken.accessToken;
+    return accessToken;
   }
 
   private async get<T>(path: string, params?: Record<string, string>): Promise<T> {
@@ -162,11 +198,9 @@ export class RedditClient {
   }
 }
 
-let sharedClient: RedditClient | null = null;
-
-export function getRedditClient(): RedditClient {
-  if (!sharedClient) sharedClient = new RedditClient();
-  return sharedClient;
+/** Drops a cached token — call after credentials for that app change. */
+export function forgetRedditToken(clientId: string): void {
+  tokenCache.delete(clientId);
 }
 
 function mapSubreddit(data: Record<string, unknown>): RedditSubreddit {

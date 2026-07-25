@@ -42,6 +42,27 @@ export const CONNECTION_ROW_COLUMNS = [
   'last_used_at', 'last_health_check', 'rate_limit_state', 'refresh_locked_until', 'created_at',
 ].join(', ');
 
+// migrations/014 — workspace-owned third-party API credentials.
+export interface WorkspaceIntegrationRow {
+  id: string;
+  workspace_id: string;
+  provider: 'reddit';
+  /** AES-256-GCM ciphertext ("v2:iv:tag:payload"). Never leaves the server. */
+  credentials: string;
+  client_id_hint: string | null;
+  verified_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The non-secret subset — everything a client is allowed to learn about a
+// connected integration. `credentials` is deliberately absent.
+export const WORKSPACE_INTEGRATION_PUBLIC_COLUMNS = [
+  'id', 'workspace_id', 'provider', 'client_id_hint', 'verified_at', 'last_error',
+  'created_at', 'updated_at',
+].join(', ');
+
 export interface ApiKeyRow {
   id: string;
   workspace_id: string;

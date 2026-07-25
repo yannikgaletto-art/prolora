@@ -6,7 +6,7 @@ import {
   type WorkspaceContextRow,
 } from '@/lib/db';
 import { scanCommunity } from '@/lib/discovery/thread-radar';
-import { getRedditClient } from '@/lib/discovery/reddit-client';
+import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
 
 export const threadRadar = inngest.createFunction(
   {
@@ -107,7 +107,7 @@ export const communityHealthCheck = inngest.createFunction(
 
     return step.run('check-communities', async () => {
       const db = getServiceDb();
-      const reddit = getRedditClient();
+      const reddit = await getRedditClientForWorkspace(workspaceId);
 
       const { data: communities, error } = await db
         .from('discovery_communities')

@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { motionSpring, stepTransition } from '@/app/components/motion';
 
 const TABS = [
   { id: 'workspace', label: 'Workspace' },
@@ -26,6 +28,8 @@ export interface SettingsTabsProps {
 // passed in from the Server Component page; switching only shows/hides it.
 export function SettingsTabs({ workspaceTab, apiKeysTab, webhooksTab, planTab, systemTab }: SettingsTabsProps) {
   const [active, setActive] = useState<TabId>('workspace');
+  const reduced = useReducedMotion();
+  const indicatorId = useId();
 
   const content: Record<TabId, ReactNode> = {
     workspace: workspaceTab,
@@ -44,17 +48,28 @@ export function SettingsTabs({ workspaceTab, apiKeysTab, webhooksTab, planTab, s
             type="button"
             onClick={() => setActive(tab.id)}
             aria-current={active === tab.id ? 'page' : undefined}
-            className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-              active === tab.id
-                ? 'border-primary-600 text-primary-700'
-                : 'border-transparent text-gray-500 hover:text-gray-900'
+            className={`relative shrink-0 px-3 py-2.5 text-sm font-medium transition-colors ${
+              active === tab.id ? 'text-primary-700' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
             {tab.label}
+            {/* layoutId lets the underline travel between tabs instead of
+                cutting; one shared id, so only ever one indicator exists. */}
+            {active === tab.id && (
+              <motion.span
+                layoutId={indicatorId}
+                transition={motionSpring.snappy}
+                className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary-600"
+              />
+            )}
           </button>
         ))}
       </div>
-      {content[active]}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div key={active} {...stepTransition(reduced)}>
+          {content[active]}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

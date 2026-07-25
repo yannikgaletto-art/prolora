@@ -25,22 +25,44 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
-/* The native <dialog> backdrop is not reachable from Tailwind utilities. */
+/* Tailwind's preflight resets `margin: 0` on *every* element (universal
+   selector), which silently kills the UA rule `dialog:modal { margin: auto }`
+   that centres a native modal dialog. Without this, every <dialog> renders in
+   the top-left corner and overflows the viewport. Restore it here — a Tailwind
+   utility cannot, because the reset and the utility have the same specificity
+   and the reset can win by order. */
+dialog:modal {
+  margin: auto;
+}
+
+/* The native <dialog> backdrop is a pseudo-element: unreachable from Tailwind
+   utilities and from `motion`, so its fade lives here. Entry uses
+   @starting-style (the pseudo-element is created already-open, so a plain
+   transition would have nothing to animate from); exit is driven by
+   data-closing, which Modal.tsx sets while it holds the dialog open for the
+   duration of the panel's exit animation. */
 dialog::backdrop {
   background-color: rgb(15 23 42 / 0.45);
+  backdrop-filter: blur(2px);
+  transition:
+    background-color 200ms ease-out,
+    backdrop-filter 200ms ease-out;
 }
 
-dialog[open] {
-  animation: modal-in 120ms ease-out;
-}
-
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
+@starting-style {
+  dialog[open]::backdrop {
+    background-color: rgb(15 23 42 / 0);
+    backdrop-filter: blur(0px);
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+}
+
+dialog[data-closing='true']::backdrop {
+  background-color: rgb(15 23 42 / 0);
+  backdrop-filter: blur(0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog::backdrop {
+    transition: none;
   }
 }

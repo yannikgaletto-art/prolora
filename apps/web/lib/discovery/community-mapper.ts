@@ -1,7 +1,11 @@
 import type { DiscoveredCommunity } from '@prolora/shared';
 import { CREDIT_COSTS } from '@prolora/shared';
 import { getServiceDb } from '@/lib/db';
-import { getRedditClient, type RedditSubreddit } from './reddit-client';
+import type { RedditSubreddit } from './reddit-client';
+import {
+  getRedditClientForWorkspace,
+  isRedditConfigured,
+} from '@/lib/integrations/reddit-credentials';
 import { getWorkspaceContext } from './auto-context';
 import { getAnthropicClient, AI_MODEL } from '@/lib/ai/client';
 import { ApiError } from '@/lib/api/http';
@@ -17,11 +21,13 @@ export interface CommunityMapperInput {
   competitors?: string[];
 }
 
-export function assertDiscoveryConfiguration(): void {
-  if (!process.env.REDDIT_CLIENT_ID || !process.env.REDDIT_CLIENT_SECRET) {
+// Reddit access is workspace-owned since migration 014 (env stays a fallback),
+// so readiness can only be answered per workspace — hence async.
+export async function assertDiscoveryConfiguration(workspaceId: string): Promise<void> {
+  if (!(await isRedditConfigured(workspaceId))) {
     throw new ApiError(
       503,
-      'Reddit access is not configured. The operator must set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET.',
+      'Reddit is not connected yet. Connect a Reddit app in Discover or Settings to map communities.',
       'discovery_not_configured'
     );
   }
@@ -30,8 +36,8 @@ export function assertDiscoveryConfiguration(): void {
 // ICP -> relevant subreddits: Reddit discovery + rules, then ONE batched
 // LLM evaluation call for all candidates (cost discipline, Blind Spot D1).
 export async function mapCommunities(input: CommunityMapperInput): Promise<DiscoveredCommunity[]> {
-  assertDiscoveryConfiguration();
-  const reddit = getRedditClient();
+  await assertDiscoveryConfiguration(input.workspaceId);
+  const reddit = await getRedditClientForWorkspace(input.workspaceId);
 
   const topics = await deriveSearchTopics(input);
 

@@ -38,7 +38,10 @@ export function Button({
     <button
       // A button that is busy must not be clickable twice.
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-md font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      // Press feedback stays in CSS on purpose: adding `motion` here would make
+      // Button a Client Component and every Server Component rendering one
+      // would pull a client boundary it does not need.
+      className={`inline-flex items-center justify-center gap-2 rounded-md font-semibold transition-[color,background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:active:scale-100 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
       {...props}
     >
       {loading && <Spinner size="sm" />}

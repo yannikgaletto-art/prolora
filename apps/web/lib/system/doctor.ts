@@ -1,12 +1,30 @@
 // GOAL-RUN7 T1: one server-side oracle describes feature readiness. Only
 // configuration names cross the API boundary; environment values never do.
-import { PLAN_LIMITS, type PlanType } from '@prolora/shared';
+import { PLAN_LIMITS, type AppLocale, type PlanType } from '@prolora/shared';
 import { getServiceDb } from '@/lib/db';
+import { isRedditConfigured } from '@/lib/integrations/reddit-credentials';
+
+/**
+ * Machine-readable reason a feature is not ready. The UI branches on this —
+ * `hint` is prose for humans and must never be parsed. `reddit_missing` in
+ * particular is what makes the Connect-Reddit flow appear inline instead of a
+ * dead-end "ask your operator" message.
+ */
+export type FeatureBlocker =
+  | 'reddit_missing'
+  | 'ai_credits_exhausted'
+  | 'anthropic_missing'
+  | 'openai_missing'
+  | 'background_jobs_missing'
+  | 'oauth_app_missing';
 
 export type FeatureState = {
   state: 'ready' | 'setup_required' | 'coming_soon';
   missing?: string[];
   hint?: string;
+  blocker?: FeatureBlocker;
+  /** True when the user can fix this themselves in the UI, without env access. */
+  selfServiceable?: boolean;
 };
 
 export interface SystemStatus {
@@ -39,15 +57,67 @@ interface DoctorInput {
     inngest: boolean;
   };
   inngestMissing?: string[];
+  /** Hint language. Defaults to 'de' — the previous hardcoded behaviour. */
+  locale?: AppLocale;
 }
 
-function feature(missing: string[], hint: string): FeatureState {
+// Hints used to be German string literals regardless of UI language, which is
+// how an English dashboard ended up showing "der Betreiber muss …". They are
+// translated here, next to the conditions that select them.
+const HINTS: Record<AppLocale, Record<string, string>> = {
+  de: {
+    anthropic: 'Der Betreiber muss den Anthropic-Zugang konfigurieren.',
+    credits: 'Keine KI-Credits im {plan}-Plan mehr verfügbar.',
+    openai: 'Der Betreiber muss OPENAI_API_KEY setzen und die App neu starten.',
+    inngestMedia:
+      'Background-Jobs laufen nicht — Generierungen würden nie fertig. In Production beide Inngest-Keys setzen, lokal den Inngest-Dev-Server starten.',
+    reddit: 'Reddit ist noch nicht verbunden. Du kannst das direkt hier erledigen.',
+    discoveryCredits: 'Community-Suche benötigt verfügbare KI-Credits.',
+    linkedin: 'LinkedIn OAuth muss vom Betreiber konfiguriert werden.',
+    x: 'X OAuth muss vom Betreiber konfiguriert werden.',
+    inngest:
+      'In Production müssen beide Inngest-Keys gesetzt sein; lokal den Inngest-Dev-Server starten.',
+  },
+  en: {
+    anthropic: 'The operator needs to configure Anthropic access.',
+    credits: 'No AI credits left on the {plan} plan.',
+    openai: 'The operator needs to set OPENAI_API_KEY and restart the app.',
+    inngestMedia:
+      'Background jobs are not running — generations would never finish. Set both Inngest keys in production, or start the Inngest dev server locally.',
+    reddit: 'Reddit is not connected yet. You can do that right here.',
+    discoveryCredits: 'Community discovery needs available AI credits.',
+    linkedin: 'LinkedIn OAuth needs to be configured by the operator.',
+    x: 'X OAuth needs to be configured by the operator.',
+    inngest:
+      'Both Inngest keys must be set in production; start the Inngest dev server locally.',
+  },
+  es: {
+    anthropic: 'El operador debe configurar el acceso a Anthropic.',
+    credits: 'No quedan créditos de IA en el plan {plan}.',
+    openai: 'El operador debe definir OPENAI_API_KEY y reiniciar la app.',
+    inngestMedia:
+      'Los trabajos en segundo plano no se ejecutan — las generaciones nunca terminarían. Define ambas claves de Inngest en producción o inicia el servidor de desarrollo de Inngest en local.',
+    reddit: 'Reddit aún no está conectado. Puedes hacerlo aquí mismo.',
+    discoveryCredits: 'El descubrimiento de comunidades necesita créditos de IA disponibles.',
+    linkedin: 'El operador debe configurar OAuth de LinkedIn.',
+    x: 'El operador debe configurar OAuth de X.',
+    inngest:
+      'En producción deben estar definidas ambas claves de Inngest; en local inicia el servidor de desarrollo de Inngest.',
+  },
+};
+
+function feature(
+  missing: string[],
+  hint: string,
+  extra?: { blocker?: FeatureBlocker; selfServiceable?: boolean }
+): FeatureState {
   return missing.length === 0
     ? { state: 'ready' }
-    : { state: 'setup_required', missing, hint };
+    : { state: 'setup_required', missing, hint, ...extra };
 }
 
 export function buildSystemStatus(input: DoctorInput): SystemStatus {
+  const t = HINTS[input.locale ?? 'de'];
   const limit = PLAN_LIMITS[input.plan].ai_credits;
   const creditsAvailable = !Number.isFinite(limit) || input.creditsUsed < limit;
   const aiMissing = [
@@ -71,39 +141,37 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
     features: {
       ai_drafts: feature(
         aiMissing,
-        creditsAvailable
-          ? 'Der Betreiber muss den Anthropic-Zugang konfigurieren.'
-          : `0 AI-Credits im ${input.plan}-Plan verfügbar.`
+        creditsAvailable ? t.anthropic : t.credits.replace('{plan}', input.plan),
+        { blocker: creditsAvailable ? 'anthropic_missing' : 'ai_credits_exhausted' }
       ),
       media_generation: feature(
         mediaMissing,
-        !input.configured.openai
-          ? 'Der Betreiber muss OPENAI_API_KEY setzen und die App neu starten.'
-          : 'Background-Jobs laufen nicht — Generierungen würden nie fertig. In Production beide Inngest-Keys setzen, lokal den Inngest-Dev-Server starten.'
+        !input.configured.openai ? t.openai : t.inngestMedia,
+        { blocker: !input.configured.openai ? 'openai_missing' : 'background_jobs_missing' }
       ),
       discovery: feature(
-        [...aiMissing, ...redditMissing],
+        [...redditMissing, ...aiMissing],
+        redditMissing.length > 0 ? t.reddit : t.discoveryCredits,
         redditMissing.length > 0
-          ? 'Reddit-Zugang fehlt — der Betreiber muss REDDIT_CLIENT_ID und REDDIT_CLIENT_SECRET setzen.'
-          : 'Community Discovery benötigt verfügbare AI-Credits.'
+          ? { blocker: 'reddit_missing', selfServiceable: true }
+          : { blocker: 'ai_credits_exhausted' }
       ),
-      listen_reddit: feature(
-        redditMissing,
-        'Reddit-Zugang fehlt — der Betreiber muss REDDIT_CLIENT_ID und REDDIT_CLIENT_SECRET setzen.'
-      ),
+      listen_reddit: feature(redditMissing, t.reddit, {
+        blocker: 'reddit_missing',
+        selfServiceable: true,
+      }),
       listen_widget: { state: 'ready' },
       connect_linkedin: feature(
         input.configured.linkedin ? [] : ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
-        'LinkedIn OAuth muss vom Betreiber konfiguriert werden.'
+        t.linkedin,
+        { blocker: 'oauth_app_missing' }
       ),
-      connect_x: feature(
-        input.configured.x ? [] : ['X_CLIENT_ID', 'X_CLIENT_SECRET'],
-        'X OAuth muss vom Betreiber konfiguriert werden.'
-      ),
-      background_jobs: feature(
-        inngestMissing,
-        'In Production müssen beide Inngest-Keys gesetzt sein; lokal den Inngest-Dev-Server starten.'
-      ),
+      connect_x: feature(input.configured.x ? [] : ['X_CLIENT_ID', 'X_CLIENT_SECRET'], t.x, {
+        blocker: 'oauth_app_missing',
+      }),
+      background_jobs: feature(inngestMissing, t.inngest, {
+        blocker: 'background_jobs_missing',
+      }),
     },
     plan: {
       name: input.plan,
@@ -130,7 +198,10 @@ export async function getBackgroundJobReadiness(): Promise<{ ready: boolean; mis
   }
 }
 
-export async function getSystemStatus(workspaceId: string): Promise<SystemStatus> {
+export async function getSystemStatus(
+  workspaceId: string,
+  locale: AppLocale = 'de'
+): Promise<SystemStatus> {
   const db = getServiceDb();
   const { data: workspace, error } = await db
     .from('workspaces')
@@ -160,14 +231,21 @@ export async function getSystemStatus(workspaceId: string): Promise<SystemStatus
     if (rows.length < pageSize) break;
   }
 
-  const inngest = await getBackgroundJobReadiness();
+  // Reddit readiness is workspace-scoped since migration 014: a workspace with
+  // its own connected app is ready even when the process env has no keys.
+  const [inngest, reddit] = await Promise.all([
+    getBackgroundJobReadiness(),
+    isRedditConfigured(workspaceId),
+  ]);
+
   return buildSystemStatus({
     plan: workspace.plan,
     creditsUsed,
+    locale,
     configured: {
       anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
       openai: Boolean(process.env.OPENAI_API_KEY),
-      reddit: Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET),
+      reddit,
       linkedin: Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET),
       x: Boolean(process.env.X_CLIENT_ID && process.env.X_CLIENT_SECRET),
       inngest: inngest.ready,
