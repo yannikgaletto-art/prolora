@@ -23,6 +23,7 @@ import {
   opportunityExpiry,
   optimalTiming,
   generateMedia,
+  pipelineStallSweep,
 } from '@/lib/inngest/functions';
 
 export const { GET, POST, PUT } = serve({
@@ -50,5 +51,6 @@ export const { GET, POST, PUT } = serve({
     opportunityExpiry,
     optimalTiming,
     generateMedia,
+    pipelineStallSweep,
   ],
 });

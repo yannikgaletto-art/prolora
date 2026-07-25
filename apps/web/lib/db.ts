@@ -480,3 +480,19 @@ export interface MediaBudgetLedgerRow {
   created_at: string;
   updated_at: string;
 }
+
+// --- Plan 2 (Migrationen 016/017/018) ------------------------------------
+// Diese Row-Types sind bei ihren Modulen definiert, nicht hier: die beiden
+// Plan-2-Agenten haben parallel gearbeitet und hätten sich in dieser Datei
+// gegenseitig überschrieben. Der Integrations-Task I2 stellt die zentrale
+// Auffindbarkeit über einen reinen Typ-Re-Export her — `export type` wird
+// zur Compile-Zeit gelöscht, es entsteht also kein Laufzeit-Zyklus, obwohl
+// die Zielmodule ihrerseits getServiceDb() aus dieser Datei importieren.
+export type {
+  ContentItemRow,
+  ContentItemVariantRow,
+  ContentItemTransitionRow,
+} from '@/lib/pipeline/state';
+export type { FeedbackThemeRow, FeedbackThemeMemberRow } from '@/lib/feedback/themes';
+export type { ProofSuggestionRow } from '@/lib/feedback/proof-extraction';
+export type { BrandVisualProfileRow } from '@/lib/media/brand-profile';

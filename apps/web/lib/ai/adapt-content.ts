@@ -4,7 +4,11 @@ import { CREDIT_COSTS, type PlatformType } from '@prolora/shared';
 
 const MAX_RETRIES = 2;
 
-const PLATFORM_STYLE: Record<PlatformType, string> = {
+// Plan 2 / 2B.3: this table stays the single source of style rules. Channel-
+// native generation (lib/pipeline/channel-native.ts) lifts it from platform to
+// channel level instead of replacing it — a LinkedIn post and an X thread are
+// two different artefacts, but they still obey the same platform rules.
+export const PLATFORM_STYLE: Record<PlatformType, string> = {
   linkedin:
     'Professional but human tone. Short paragraphs with line breaks. 3-5 relevant hashtags at the end.',
   x: 'Punchy and concise. Hooks in the first line. At most 1-2 hashtags.',

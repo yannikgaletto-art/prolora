@@ -5,11 +5,13 @@ import Link from 'next/link';
 export function PublishTabs({
   active,
 }: {
-  active: 'start' | 'compose' | 'calendar' | 'hub' | 'posts' | 'media';
+  active: 'start' | 'compose' | 'pipeline' | 'calendar' | 'hub' | 'posts' | 'media';
 }) {
   const tabs = [
     { key: 'start' as const, label: 'Start', href: '/publish/start' },
     { key: 'compose' as const, label: 'Compose', href: '/publish' },
+    // Plan 2 / 2B.5 — Tages-Cockpit der Content-Fabrik.
+    { key: 'pipeline' as const, label: 'Fabrik', href: '/publish/pipeline' },
     { key: 'calendar' as const, label: 'Calendar', href: '/publish/calendar' },
     { key: 'hub' as const, label: 'Content Hub', href: '/publish/hub' },
     { key: 'posts' as const, label: 'Posts', href: '/publish/posts' },

@@ -5,11 +5,67 @@
 // server-side config, never UI constants. Missing OPENAI_API_KEY degrades to a
 // clean configuration error — uploads and publishing keep working.
 import { ApiError } from '@/lib/api/http';
-import { getServiceDb, type MediaGenerationRow } from '@/lib/db';
+import { getServiceDb, isMissingSchemaError, type MediaGenerationRow } from '@/lib/db';
 import { inngest } from '@/lib/inngest/client';
+import { applyBrandToPrompt, getBrandProfile } from '@/lib/media/brand-profile';
 import { MEDIA_BUCKET } from '@/lib/media/transform';
 
+/**
+ * Default- und Fallback-Grenze. Bleibt exportiert, damit nichts bricht, was
+ * heute dagegen programmiert ist.
+ *
+ * Entscheidung D3 (Plan 2 §10): die tatsächliche Grenze ist plan-abhängig und
+ * steht als `workspaces.media_budget_limit_eur` (Migration 018). 10 EUR erlauben
+ * ~83 Generierungen OHNE jede Verwerfung — Qualität entsteht aber durch Auswahl.
+ * Ledger und die atomare Reservierungs-RPC bleiben unverändert; dynamisch ist
+ * ausschließlich der übergebene `p_limit`.
+ */
 export const MEDIA_BUDGET_LIMIT_EUR = 10;
+
+export const PLAN_MEDIA_BUDGET_EUR: Record<string, number> = {
+  starter: 10,
+  pro: 60,
+  agency: 200,
+};
+
+/**
+ * Auflösungsreihenfolge: Workspace-Spalte -> Plan-Default -> 10 EUR.
+ * Fehlt die Spalte (Migration 018 noch nicht angewendet), wird über den Plan
+ * aufgelöst statt zu werfen — dasselbe Schema-Drift-Muster wie in lib/product/.
+ */
+export async function resolveMediaBudgetLimitEur(workspaceId: string): Promise<number> {
+  const db = getServiceDb();
+  const { data, error } = await db
+    .from('workspaces')
+    .select('plan, media_budget_limit_eur')
+    .eq('id', workspaceId) // Invariante 2 — explizites Workspace-Scoping
+    .maybeSingle<{ plan: string | null; media_budget_limit_eur: number | null }>();
+
+  if (!error && data) {
+    const limit = Number(data.media_budget_limit_eur);
+    if (Number.isFinite(limit) && limit > 0) return limit;
+    return planLimit(data.plan);
+  }
+
+  if (error && !isMissingSchemaError(error.code)) {
+    console.error('[media-gen] budget limit lookup failed:', error.message);
+    return MEDIA_BUDGET_LIMIT_EUR;
+  }
+
+  const { data: planRow, error: planError } = await db
+    .from('workspaces')
+    .select('plan')
+    .eq('id', workspaceId) // Invariante 2
+    .maybeSingle<{ plan: string | null }>();
+  if (planError || !planRow) return MEDIA_BUDGET_LIMIT_EUR;
+  return planLimit(planRow.plan);
+}
+
+/** Rein — für Tests und für den Fallback ohne Spalte. */
+export function planLimit(plan: string | null | undefined): number {
+  if (!plan) return MEDIA_BUDGET_LIMIT_EUR;
+  return PLAN_MEDIA_BUDGET_EUR[plan] ?? MEDIA_BUDGET_LIMIT_EUR;
+}
 
 // Versioned price settings (spec: "Provider prices are configuration").
 // Conservative EUR estimates incl. FX buffer, rounded UP (spec FX rule).
@@ -45,6 +101,7 @@ export interface MediaBudgetStatus {
 export async function getBudgetStatus(workspaceId: string): Promise<MediaBudgetStatus> {
   const db = getServiceDb();
   const month = monthKey(new Date());
+  const limit = await resolveMediaBudgetLimitEur(workspaceId);
   const { data, error } = await db
     .from('media_budget_ledger')
     .select('estimated_eur, final_eur, state')
@@ -60,9 +117,9 @@ export async function getBudgetStatus(workspaceId: string): Promise<MediaBudgetS
     0
   );
   return {
-    limit_eur: MEDIA_BUDGET_LIMIT_EUR,
+    limit_eur: limit,
     spent_eur: Math.round(spent * 100) / 100,
-    remaining_eur: Math.max(0, Math.round((MEDIA_BUDGET_LIMIT_EUR - spent) * 100) / 100),
+    remaining_eur: Math.max(0, Math.round((limit - spent) * 100) / 100),
     month,
   };
 }
@@ -84,6 +141,12 @@ export async function createGeneration(
 
   const db = getServiceDb();
   const price = MEDIA_PRICES[input.kind];
+  // D3: plan-abhängige Grenze. Ledger und RPC bleiben unverändert.
+  const limitEur = await resolveMediaBudgetLimitEur(workspaceId);
+  // 2A.5: das Brand-Visual-Profile fließt in JEDEN Bild-Prompt. Ohne das
+  // erzeugen 75 Posts im Monat visuellen Wildwuchs. Ohne Migration 018 greifen
+  // die Defaults, der Prompt bleibt also in jedem Fall vollständig.
+  const brandedPrompt = applyBrandToPrompt(input.prompt, await getBrandProfile(workspaceId));
 
   // 1. Create the generation record (pending).
   const { data: generation, error: insertError } = await db
@@ -91,7 +154,7 @@ export async function createGeneration(
     .insert({
       workspace_id: workspaceId,
       kind: input.kind,
-      prompt: input.prompt,
+      prompt: brandedPrompt,
       format: input.format,
       provider: 'openai',
       model: price.model,
@@ -109,7 +172,7 @@ export async function createGeneration(
     p_generation: generation.id,
     p_month: monthKey(new Date()),
     p_estimate: price.estimated_eur,
-    p_limit: MEDIA_BUDGET_LIMIT_EUR,
+    p_limit: limitEur,
     p_provider: 'openai',
     p_model: price.model,
   });
@@ -122,7 +185,7 @@ export async function createGeneration(
     const status = await getBudgetStatus(workspaceId);
     throw new ApiError(
       402,
-      `Monthly AI media budget reached (${status.spent_eur.toFixed(2)} / ${MEDIA_BUDGET_LIMIT_EUR} EUR).`,
+      `Monthly AI media budget reached (${status.spent_eur.toFixed(2)} / ${limitEur} EUR).`,
       'media_budget_exceeded'
     );
   }
