@@ -180,9 +180,77 @@ describe('buildSystemStatus', () => {
 
   it('checks the local Inngest dev server instead of treating key names as runtime readiness', async () => {
     vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('INNGEST_EVENT_KEY', '');
+    vi.stubEnv('INNGEST_SIGNING_KEY', '');
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(getBackgroundJobReadiness()).resolves.toEqual({ ready: true, missing: [] });
     expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8288/', expect.objectContaining({ cache: 'no-store' }));
+  });
+});
+
+// Gemeldeter Fehler 2026-07-25: Der Nutzer hatte die Inngest-Keys in Vercel
+// gesetzt und bekam trotzdem "KI-Generierung benötigt Einrichtung" mit BEIDEN
+// Schlüsselnamen darunter — obwohl höchstens einer gefehlt haben kann.
+describe('Inngest-Bereitschaft nennt nur den tatsächlich fehlenden Schlüssel', () => {
+  it('nur der Signing-Key fehlt -> nur dieser wird gemeldet', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('INNGEST_EVENT_KEY', 'evt_vorhanden');
+    vi.stubEnv('INNGEST_SIGNING_KEY', '');
+    await expect(getBackgroundJobReadiness()).resolves.toEqual({
+      ready: false,
+      missing: ['INNGEST_SIGNING_KEY'],
+    });
+  });
+
+  it('nur der Event-Key fehlt -> nur dieser wird gemeldet', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('INNGEST_EVENT_KEY', '');
+    vi.stubEnv('INNGEST_SIGNING_KEY', 'signkey_vorhanden');
+    await expect(getBackgroundJobReadiness()).resolves.toEqual({
+      ready: false,
+      missing: ['INNGEST_EVENT_KEY'],
+    });
+  });
+
+  it('beide gesetzt -> bereit', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('INNGEST_EVENT_KEY', 'evt');
+    vi.stubEnv('INNGEST_SIGNING_KEY', 'sign');
+    await expect(getBackgroundJobReadiness()).resolves.toEqual({ ready: true, missing: [] });
+  });
+
+  it('lokal mit echten Keys (Inngest Cloud) ist bereit, ohne den Dev-Server zu pingen', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('INNGEST_EVENT_KEY', 'evt');
+    vi.stubEnv('INNGEST_SIGNING_KEY', 'sign');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getBackgroundJobReadiness()).resolves.toEqual({ ready: true, missing: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Der Hinweis passt zur Umgebung', () => {
+  const base = {
+    plan: 'starter' as const,
+    creditsUsed: 0,
+    configured: { anthropic: true, openai: true, reddit: true, linkedin: true, x: true, inngest: false },
+  };
+
+  it('Deploy ohne Schlüssel: nennt Vercel-Umgebung und Neu-Deploy, nicht den Dev-Server', () => {
+    const status = buildSystemStatus({ ...base, inngestMissing: ['INNGEST_SIGNING_KEY'] });
+    const hint = status.features.media_generation.hint ?? '';
+    expect(hint).toContain('Vercel');
+    expect(hint).toContain('deploy');
+    expect(hint).not.toContain('dev:jobs');
+    expect(status.features.media_generation.missing).toEqual(['INNGEST_SIGNING_KEY']);
+  });
+
+  it('lokal ohne Dev-Server: nennt dev:jobs, nicht Vercel', () => {
+    const status = buildSystemStatus({ ...base, inngestMissing: ['INNGEST_DEV_SERVER'] });
+    const hint = status.features.media_generation.hint ?? '';
+    expect(hint).toContain('dev:jobs');
+    expect(hint).not.toContain('Vercel');
   });
 });

@@ -71,42 +71,54 @@ const HINTS: Record<AppLocale, Record<string, string>> = {
     credits: 'Keine KI-Credits im {plan}-Plan mehr verfügbar.',
     openai: 'Der Betreiber muss OPENAI_API_KEY setzen und die App neu starten.',
     inngestMedia:
-      'Background-Jobs laufen nicht — Generierungen würden nie fertig. In Production beide Inngest-Keys setzen, lokal den Inngest-Dev-Server starten.',
+      'Background-Jobs laufen nicht — Generierungen würden nie fertig. Dieser Deploy sieht den unten genannten Wert nicht: in Vercel für genau diese Umgebung (Production bzw. Preview) setzen und danach neu deployen — bestehende Deploys übernehmen geänderte Variablen nicht.',
+    inngestMediaDev:
+      'Background-Jobs laufen nicht — Generierungen würden nie fertig. Lokal den Inngest-Dev-Server starten (npm run dev:jobs) oder beide Inngest-Keys in .env.local setzen.',
     reddit: 'Reddit ist noch nicht verbunden. Du kannst das direkt hier erledigen.',
     discoveryCredits: 'Community-Suche benötigt verfügbare KI-Credits.',
     linkedin:
       'Noch keine LinkedIn-App hinterlegt. Unter Verbindungen deine eigene LinkedIn-App eintragen — dauert etwa zwei Minuten.',
     x: 'Noch keine X-App hinterlegt. Unter Verbindungen deine eigene X-App eintragen — dauert etwa zwei Minuten.',
     inngest:
-      'In Production müssen beide Inngest-Keys gesetzt sein; lokal den Inngest-Dev-Server starten.',
+      'Dieser Deploy sieht den unten genannten Wert nicht: in Vercel für genau diese Umgebung (Production bzw. Preview) setzen und danach neu deployen — bestehende Deploys übernehmen geänderte Variablen nicht.',
+    inngestDev:
+      'Lokal den Inngest-Dev-Server starten (npm run dev:jobs) oder beide Inngest-Keys in .env.local setzen.',
   },
   en: {
     anthropic: 'The operator needs to configure Anthropic access.',
     credits: 'No AI credits left on the {plan} plan.',
     openai: 'The operator needs to set OPENAI_API_KEY and restart the app.',
     inngestMedia:
-      'Background jobs are not running — generations would never finish. Set both Inngest keys in production, or start the Inngest dev server locally.',
+      'Background jobs are not running — generations would never finish. This deployment cannot see the value named below: set it in Vercel for this exact environment (Production or Preview), then redeploy — existing deployments do not pick up changed variables.',
+    inngestMediaDev:
+      'Background jobs are not running — generations would never finish. Start the Inngest dev server locally (npm run dev:jobs) or set both Inngest keys in .env.local.',
     reddit: 'Reddit is not connected yet. You can do that right here.',
     discoveryCredits: 'Community discovery needs available AI credits.',
     linkedin:
       'No LinkedIn app connected yet. Add your own LinkedIn app under Connections — about two minutes.',
     x: 'No X app connected yet. Add your own X app under Connections — about two minutes.',
     inngest:
-      'Both Inngest keys must be set in production; start the Inngest dev server locally.',
+      'This deployment cannot see the value named below: set it in Vercel for this exact environment (Production or Preview), then redeploy — existing deployments do not pick up changed variables.',
+    inngestDev:
+      'Start the Inngest dev server locally (npm run dev:jobs) or set both Inngest keys in .env.local.',
   },
   es: {
     anthropic: 'El operador debe configurar el acceso a Anthropic.',
     credits: 'No quedan créditos de IA en el plan {plan}.',
     openai: 'El operador debe definir OPENAI_API_KEY y reiniciar la app.',
     inngestMedia:
-      'Los trabajos en segundo plano no se ejecutan — las generaciones nunca terminarían. Define ambas claves de Inngest en producción o inicia el servidor de desarrollo de Inngest en local.',
+      'Los trabajos en segundo plano no se ejecutan — las generaciones nunca terminarían. Este despliegue no ve el valor indicado abajo: defínelo en Vercel para este entorno exacto (Production o Preview) y vuelve a desplegar — los despliegues existentes no recogen variables modificadas.',
+    inngestMediaDev:
+      'Los trabajos en segundo plano no se ejecutan — las generaciones nunca terminarían. Inicia el servidor de desarrollo de Inngest en local (npm run dev:jobs) o define ambas claves de Inngest en .env.local.',
     reddit: 'Reddit aún no está conectado. Puedes hacerlo aquí mismo.',
     discoveryCredits: 'El descubrimiento de comunidades necesita créditos de IA disponibles.',
     linkedin:
       'Todavía no hay ninguna app de LinkedIn. Añade tu propia app de LinkedIn en Conexiones — unos dos minutos.',
     x: 'Todavía no hay ninguna app de X. Añade tu propia app de X en Conexiones — unos dos minutos.',
     inngest:
-      'En producción deben estar definidas ambas claves de Inngest; en local inicia el servidor de desarrollo de Inngest.',
+      'Este despliegue no ve el valor indicado abajo: defínelo en Vercel para este entorno exacto (Production o Preview) y vuelve a desplegar — los despliegues existentes no recogen variables modificadas.',
+    inngestDev:
+      'Inicia el servidor de desarrollo de Inngest en local (npm run dev:jobs) o define ambas claves de Inngest en .env.local.',
   },
 };
 
@@ -136,6 +148,12 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
   const inngestMissing = input.configured.inngest
     ? []
     : (input.inngestMissing ?? ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY']);
+  // Der Hinweis muss zur Umgebung passen. „In Production Keys setzen, lokal den
+  // Dev-Server starten" zwang den Leser, selbst zu erraten, welcher Halbsatz
+  // für ihn gilt — und wer die Keys längst gesetzt hatte, las den falschen.
+  const inngestIsDevServer = inngestMissing.includes('INNGEST_DEV_SERVER');
+  const inngestHint = inngestIsDevServer ? t.inngestDev : t.inngest;
+  const inngestMediaHint = inngestIsDevServer ? t.inngestMediaDev : t.inngestMedia;
   // Generations run in an Inngest worker — without background jobs the row
   // stays 'pending' forever and the budget reservation is paid into the void.
   const mediaMissing = [
@@ -152,7 +170,7 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
       ),
       media_generation: feature(
         mediaMissing,
-        !input.configured.openai ? t.openai : t.inngestMedia,
+        !input.configured.openai ? t.openai : inngestMediaHint,
         { blocker: !input.configured.openai ? 'openai_missing' : 'background_jobs_missing' }
       ),
       // Discovery stopped depending on Reddit with the provider registry:
@@ -185,7 +203,7 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
         blocker: 'oauth_app_missing',
         selfServiceable: true,
       }),
-      background_jobs: feature(inngestMissing, t.inngest, {
+      background_jobs: feature(inngestMissing, inngestHint, {
         blocker: 'background_jobs_missing',
       }),
     },
@@ -198,10 +216,26 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
 }
 
 export async function getBackgroundJobReadiness(): Promise<{ ready: boolean; missing: string[] }> {
+  const hasEventKey = Boolean(process.env.INNGEST_EVENT_KEY);
+  const hasSigningKey = Boolean(process.env.INNGEST_SIGNING_KEY);
+
+  // Nur den TATSÄCHLICH fehlenden Schlüssel melden. Vorher nannte die Meldung
+  // immer beide — wer einen von beiden gesetzt hatte, suchte den Fehler beim
+  // falschen Wert und hielt eine korrekte Konfiguration für kaputt.
+  const missingKeys = [
+    ...(hasEventKey ? [] : ['INNGEST_EVENT_KEY']),
+    ...(hasSigningKey ? [] : ['INNGEST_SIGNING_KEY']),
+  ];
+
   if (process.env.NODE_ENV !== 'development') {
-    const ready = Boolean(process.env.INNGEST_EVENT_KEY && process.env.INNGEST_SIGNING_KEY);
-    return { ready, missing: ready ? [] : ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'] };
+    return { ready: missingKeys.length === 0, missing: missingKeys };
   }
+
+  // Lokal gegen Inngest Cloud zu arbeiten ist legitim: liegen beide Schlüssel
+  // vor, ist der Hintergrund-Worker erreichbar und der Dev-Server irrelevant.
+  // Vorher hat dieser Zweig die Schlüssel nie angesehen und dadurch eine
+  // funktionierende Einrichtung als kaputt gemeldet.
+  if (missingKeys.length === 0) return { ready: true, missing: [] };
 
   try {
     const response = await fetch(process.env.INNGEST_DEV_SERVER_URL ?? 'http://127.0.0.1:8288/', {
