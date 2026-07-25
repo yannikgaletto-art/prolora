@@ -1,27 +1,22 @@
+// Client ID/secret are workspace-owned (lib/auth/byo-oauth.ts) with the env as
+// fallback; the redirect URI and the HMAC-signed state stay ours in both cases.
 import { encrypt } from '@/lib/auth/encryption';
 import { saveConnection } from '@/lib/auth/connections';
 import { createOAuthState } from '@/lib/auth/oauth-state';
+import { assertOwnRedirectUri, byoRedirectUri, resolveOAuthApp } from '@/lib/auth/byo-oauth';
 import { ApiError } from '@/lib/api/http';
 import type { ConnectionRow } from '@/lib/db';
 
 const SCOPES = 'openid profile email w_member_social';
 
-function getCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new ApiError(500, 'LinkedIn is not configured on this server.', 'platform_not_configured');
-  }
-  return { clientId, clientSecret };
-}
-
 function redirectUri(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  return `${base}/api/auth/linkedin/callback`;
+  return assertOwnRedirectUri(byoRedirectUri('linkedin'));
 }
 
-export function getLinkedInAuthUrl(workspaceId: string): { url: string; state: string } {
-  const { clientId } = getCredentials();
+export async function getLinkedInAuthUrl(
+  workspaceId: string
+): Promise<{ url: string; state: string }> {
+  const { clientId } = await resolveOAuthApp(workspaceId, 'linkedin');
   const state = createOAuthState(workspaceId);
   const params = new URLSearchParams({
     response_type: 'code',
@@ -51,7 +46,7 @@ export async function handleLinkedInCallback(
   code: string,
   workspaceId: string
 ): Promise<ConnectionRow> {
-  const { clientId, clientSecret } = getCredentials();
+  const { clientId, clientSecret } = await resolveOAuthApp(workspaceId, 'linkedin');
 
   let tokenResponse: Response;
   try {

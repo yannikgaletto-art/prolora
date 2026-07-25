@@ -46,7 +46,7 @@ export const CONNECTION_ROW_COLUMNS = [
 export interface WorkspaceIntegrationRow {
   id: string;
   workspace_id: string;
-  provider: 'reddit';
+  provider: import('@/lib/integrations/types').IntegrationProvider;
   /** AES-256-GCM ciphertext ("v2:iv:tag:payload"). Never leaves the server. */
   credentials: string;
   client_id_hint: string | null;
@@ -310,6 +310,12 @@ export interface DiscoveryCommunityRow {
   workspace_id: string;
   platform: string;
   community_name: string;
+  /**
+   * Provider-native identifier (subreddit name, Mastodon hashtag, HN query).
+   * Migration 015 — dedupe key once `platform` carries more than 'reddit'.
+   * Nullable while rows predating 015 still exist.
+   */
+  community_external_id: string | null;
   community_url: string | null;
   member_count: number | null;
   activity_level: string | null;

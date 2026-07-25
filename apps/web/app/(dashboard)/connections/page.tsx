@@ -3,8 +3,12 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getConnections } from '@/lib/connections/list-connections';
+import { getConnectionHealth } from '@/lib/connections/health';
+import { getChannelCapacity } from '@/lib/connections/capacity';
 import { ConnectionsView } from './ConnectionsView';
-import { getSystemStatus } from '@/lib/system/doctor';
+import { byoRedirectUri, oauthAppProvider, oauthPlatformLabel } from '@/lib/auth/byo-oauth';
+import { getIntegrationStatus } from '@/lib/integrations/credentials';
+import type { OAuthAppStatusDto } from '@/lib/connections/registry';
 import { getLocale } from '@/lib/i18n/server';
 
 export const metadata: Metadata = { title: 'Connections — Prolora' };
@@ -16,9 +20,12 @@ export default async function ConnectionsPage() {
   const workspace = await getActiveWorkspace(supabase);
   if (!workspace) redirect('/login');
 
-  const [connections, systemStatus, locale] = await Promise.all([
+  const [connections, health, capacity, linkedinApp, xApp, locale] = await Promise.all([
     getConnections(workspace.id),
-    getSystemStatus(workspace.id),
+    getConnectionHealth(workspace.id),
+    getChannelCapacity(workspace.id),
+    oauthAppStatus(workspace.id, 'linkedin'),
+    oauthAppStatus(workspace.id, 'x'),
     getLocale(),
   ]);
 
@@ -32,12 +39,30 @@ export default async function ConnectionsPage() {
       </div>
       <ConnectionsView
         initialConnections={connections}
+        health={health}
+        capacity={capacity}
+        oauthApps={{ linkedin: linkedinApp, x: xApp }}
         locale={locale}
-        connectStates={{
-          linkedin: systemStatus.features.connect_linkedin,
-          x: systemStatus.features.connect_x,
-        }}
       />
     </div>
   );
+}
+
+// Mirrors GET /api/v1/connections/oauth-app/{platform} so the first paint needs
+// no client fetch. Never carries the secret — only the status shape does.
+async function oauthAppStatus(
+  workspaceId: string,
+  platform: 'linkedin' | 'x'
+): Promise<OAuthAppStatusDto> {
+  const status = await getIntegrationStatus(workspaceId, oauthAppProvider(platform));
+  return {
+    platform,
+    label: oauthPlatformLabel(platform),
+    redirect_uri: byoRedirectUri(platform),
+    connected: status.connected,
+    source: status.source,
+    clientIdHint: status.clientIdHint,
+    verifiedAt: status.verifiedAt,
+    lastError: status.lastError,
+  };
 }

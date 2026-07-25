@@ -1,6 +1,6 @@
 import { getServiceDb, type DiscoveryCommunityRow, type WorkspaceContextRow } from '@/lib/db';
-import type { RedditThread } from './reddit-client';
-import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
+import type { DiscoveredThread } from '@/lib/integrations/registry';
+import { getDiscoveryProvider, toDiscoveryProvider } from './providers';
 import { checkCooldown } from './cooldown-tracker';
 import { evaluateThreads, type EvaluationUsage } from '@/lib/ai/evaluate-threads';
 
@@ -15,42 +15,79 @@ export interface RadarScanResult {
   usage: EvaluationUsage;
 }
 
+const EMPTY_USAGE: EvaluationUsage = { inputTokens: 0, outputTokens: 0, llmCalls: 0 };
+
+/**
+ * The provider-native id, with a pre-015 fallback derived from the display name.
+ * Rows written before migration 015 have no `community_external_id`, and a scan
+ * must not skip them just because the column is not backfilled yet.
+ */
+export function communityExternalId(community: DiscoveryCommunityRow): string {
+  if (community.community_external_id) return community.community_external_id;
+  const name = community.community_name;
+  const quoted = name.match(/"([^"]+)"/);
+  if (quoted?.[1]) return quoted[1];
+  return name.replace(/^r\//i, '').replace(/^#/, '');
+}
+
 // Two-stage filter (Blind Spot D1):
-//   Stage 1 — keyword match (free, <1ms/thread): Reddit search + local
-//             keyword re-check kills ~80% of noise before any LLM sees it.
+//   Stage 1 — keyword match (free, <1ms/thread): the provider's own search plus
+//             a local keyword re-check kills ~80% of noise before any LLM sees it.
 //   Stage 2 — LLM batch evaluation (10 threads/call) only for the survivors.
 // Cost: ~$0.001/batch instead of $0.01/thread -> factor ~960 cheaper.
+//
+// Provider-agnostic since the multi-platform rollout: `community.platform`
+// decides which DiscoveryProvider answers, and `scanThreads: false` providers
+// are skipped instead of being asked something they cannot do.
 export async function scanCommunity(
   community: DiscoveryCommunityRow,
   context: WorkspaceContextRow
 ): Promise<RadarScanResult> {
   const db = getServiceDb();
-  const reddit = await getRedditClientForWorkspace(community.workspace_id);
+
+  const providerId = toDiscoveryProvider(community.platform);
+  if (!providerId) {
+    console.error(
+      `[thread-radar] community ${community.id} has unknown platform "${community.platform}" — skipping`
+    );
+    return { scanned: 0, keywordMatches: 0, evaluated: 0, opportunitiesCreated: 0, usage: EMPTY_USAGE };
+  }
+
+  const provider = await getDiscoveryProvider(community.workspace_id, providerId);
+  if (!provider.capabilities.scanThreads) {
+    return { scanned: 0, keywordMatches: 0, evaluated: 0, opportunitiesCreated: 0, usage: EMPTY_USAGE };
+  }
 
   const keywords = (community.keywords.length > 0 ? community.keywords : context.suggested_keywords)
     .map((k) => k.toLowerCase())
     .filter(Boolean);
-  const emptyUsage: EvaluationUsage = { inputTokens: 0, outputTokens: 0, llmCalls: 0 };
 
   if (keywords.length === 0) {
-    return { scanned: 0, keywordMatches: 0, evaluated: 0, opportunitiesCreated: 0, usage: emptyUsage };
+    return { scanned: 0, keywordMatches: 0, evaluated: 0, opportunitiesCreated: 0, usage: EMPTY_USAGE };
   }
 
-  const subreddit = community.community_name.replace(/^r\//, '');
+  const externalId = communityExternalId(community);
 
-  // Stage 1a: Reddit search does the heavy keyword lifting server-side.
+  // Stage 1a: the provider does the heavy keyword lifting server-side where it
+  // can (Reddit, HN); the fan-out providers filter locally against the same
+  // OR-joined query.
   const query = keywords.slice(0, 6).join(' OR ');
-  const threads = await reddit.searchThreads(subreddit, query, { time: 'day', limit: 100 });
+  const threads = await provider.searchThreads(externalId, query, { time: 'day', limit: 100 });
+  for (const degradation of provider.degradations ?? []) {
+    console.error(
+      `[thread-radar] ${providerId} partial result — ${degradation.source}: ${degradation.reason}`
+    );
+  }
 
-  // Stage 1b: local re-check — the search API is fuzzy, this is exact.
+  // Stage 1b: local re-check — provider search is fuzzy, this is exact.
   const keywordMatched = threads.filter((thread) => {
-    const haystack = `${thread.title} ${thread.selftext}`.toLowerCase();
+    const haystack = `${thread.title} ${thread.body}`.toLowerCase();
     return keywords.some((keyword) => haystack.includes(keyword));
   });
 
   // Dedup: UNIQUE(workspace_id, platform, thread_external_id) backs this,
   // but filtering up-front saves LLM spend on already-known threads.
-  const fresh = await filterAlreadyKnown(community.workspace_id, keywordMatched);
+  const fresh = await filterAlreadyKnown(community.workspace_id, community.platform, keywordMatched);
   const candidates = fresh.slice(0, MAX_CANDIDATES_PER_SCAN);
 
   if (candidates.length === 0) {
@@ -60,7 +97,7 @@ export async function scanCommunity(
       keywordMatches: keywordMatched.length,
       evaluated: 0,
       opportunitiesCreated: 0,
-      usage: emptyUsage,
+      usage: EMPTY_USAGE,
     };
   }
 
@@ -68,8 +105,8 @@ export async function scanCommunity(
   const { evaluations, usage } = await evaluateThreads(
     candidates.map((thread) => ({
       title: thread.title,
-      body: thread.selftext,
-      community: thread.subreddit,
+      body: thread.body,
+      community: thread.communityName,
     })),
     context.product_description ?? '',
     context.target_audience ?? ''
@@ -87,14 +124,14 @@ export async function scanCommunity(
     const { error } = await db.from('opportunity_threads').insert({
       workspace_id: community.workspace_id,
       community_id: community.id,
-      platform: 'reddit',
+      platform: community.platform,
       community_name: community.community_name,
       thread_title: thread.title,
-      thread_url: thread.permalink,
-      thread_external_id: thread.fullname,
+      thread_url: thread.url,
+      thread_external_id: thread.externalId,
       thread_author: thread.author,
-      thread_body: thread.selftext.slice(0, 10000),
-      posted_at: new Date(thread.created_utc * 1000).toISOString(),
+      thread_body: thread.body.slice(0, 10000),
+      posted_at: thread.createdAt > 0 ? new Date(thread.createdAt * 1000).toISOString() : null,
       relevance_score: evaluation.relevance_score,
       intent_type: evaluation.intent_type,
       intent_score: evaluation.intent_score,
@@ -102,7 +139,7 @@ export async function scanCommunity(
       status: 'new',
       cooldown_warning: cooldown.warning,
       engagement_upvotes: thread.score,
-      engagement_replies: thread.num_comments,
+      engagement_replies: thread.replies,
     });
 
     if (error) {
@@ -128,18 +165,19 @@ export async function scanCommunity(
 
 async function filterAlreadyKnown(
   workspaceId: string,
-  threads: RedditThread[]
-): Promise<RedditThread[]> {
+  platform: string,
+  threads: DiscoveredThread[]
+): Promise<DiscoveredThread[]> {
   if (threads.length === 0) return [];
   const db = getServiceDb();
   const { data, error } = await db
     .from('opportunity_threads')
     .select('thread_external_id')
     .eq('workspace_id', workspaceId)
-    .eq('platform', 'reddit')
+    .eq('platform', platform)
     .in(
       'thread_external_id',
-      threads.map((t) => t.fullname)
+      threads.map((t) => t.externalId)
     )
     .returns<Array<{ thread_external_id: string }>>();
   if (error) {
@@ -147,7 +185,7 @@ async function filterAlreadyKnown(
     return threads; // fall back to the DB unique constraint
   }
   const known = new Set((data ?? []).map((row) => row.thread_external_id));
-  return threads.filter((thread) => !known.has(thread.fullname));
+  return threads.filter((thread) => !known.has(thread.externalId));
 }
 
 async function touchLastScanned(communityId: string): Promise<void> {

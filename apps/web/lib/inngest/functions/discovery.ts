@@ -5,8 +5,10 @@ import {
   type PostItemRow,
   type WorkspaceContextRow,
 } from '@/lib/db';
-import { scanCommunity } from '@/lib/discovery/thread-radar';
-import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
+import { communityExternalId, scanCommunity } from '@/lib/discovery/thread-radar';
+import { getDiscoveryProvider, toDiscoveryProvider } from '@/lib/discovery/providers';
+import type { DiscoveryProvider } from '@/lib/integrations/registry';
+import type { IntegrationProvider } from '@/lib/integrations/types';
 
 export const threadRadar = inngest.createFunction(
   {
@@ -72,11 +74,12 @@ export const scheduledThreadRadar = inngest.createFunction(
   async ({ step }) => {
     const communities = await step.run('scan-active-communities', async () => {
       const db = getServiceDb();
+      // Every platform, not just Reddit — `platform` became genuinely
+      // multi-valued with migration 015, and scanCommunity picks the provider.
       const { data, error } = await db
         .from('discovery_communities')
         .select('id, workspace_id')
         .eq('is_active', true)
-        .eq('platform', 'reddit')
         .limit(500)
         .returns<Array<Pick<DiscoveryCommunityRow, 'id' | 'workspace_id'>>>();
       if (error) throw new Error(`[scheduled-thread-radar] query failed: ${error.message}`);
@@ -107,46 +110,82 @@ export const communityHealthCheck = inngest.createFunction(
 
     return step.run('check-communities', async () => {
       const db = getServiceDb();
-      const reddit = await getRedditClientForWorkspace(workspaceId);
 
       const { data: communities, error } = await db
         .from('discovery_communities')
         .select('*')
         .eq('workspace_id', workspaceId)
         .eq('is_active', true)
-        .eq('platform', 'reddit')
         .returns<DiscoveryCommunityRow[]>();
       if (error) throw new Error(`[community-health] query failed: ${error.message}`);
 
+      // One provider instance per platform, built lazily: a workspace whose
+      // Reddit credentials are gone must still get its Mastodon communities
+      // refreshed instead of the whole check failing on the first one.
+      const providers = new Map<IntegrationProvider, DiscoveryProvider | null>();
+      const providerFor = async (platform: string): Promise<DiscoveryProvider | null> => {
+        const id = toDiscoveryProvider(platform);
+        if (!id) return null;
+        if (!providers.has(id)) {
+          try {
+            providers.set(id, await getDiscoveryProvider(workspaceId, id));
+          } catch (buildError) {
+            console.error(
+              `[community-health] provider ${id} unavailable:`,
+              buildError instanceof Error ? buildError.message : buildError
+            );
+            providers.set(id, null);
+          }
+        }
+        return providers.get(id) ?? null;
+      };
+
       let updated = 0;
       let deactivated = 0;
+      let skipped = 0;
 
       for (const community of communities ?? []) {
-        const subreddit = community.community_name.replace(/^r\//, '');
+        const provider = await providerFor(community.platform);
+        if (!provider) {
+          skipped++;
+          continue;
+        }
+
+        const externalId = communityExternalId(community);
         try {
-          const about = await reddit.getSubredditAbout(subreddit);
-          const active = about.active_user_count ?? 0;
+          const info = provider.getCommunityInfo
+            ? await provider.getCommunityInfo(externalId)
+            : null;
+
+          if (!info) {
+            // No refreshable metadata: fall back to a liveness probe so the
+            // community is only deactivated when it is genuinely unreachable.
+            await provider.getHotThreads(externalId, 1);
+            continue;
+          }
+
+          const active = info.activeCount ?? 0;
           const activityLevel =
-            active > 1000 || about.subscribers > 500_000
+            active > 1000 || info.memberCount > 500_000
               ? 'high'
-              : active > 100 || about.subscribers > 50_000
+              : active > 100 || info.memberCount > 50_000
                 ? 'medium'
                 : 'low';
 
           const { error: updateError } = await db
             .from('discovery_communities')
-            .update({ member_count: about.subscribers, activity_level: activityLevel })
+            .update({ member_count: info.memberCount, activity_level: activityLevel })
             .eq('id', community.id);
           if (updateError) {
             console.error('[community-health] update failed:', updateError.message);
           } else {
             updated++;
           }
-        } catch (aboutError) {
-          // Banned/private/deleted subreddit -> deactivate, stop scanning it.
+        } catch (probeError) {
+          // Banned/private/deleted community -> deactivate, stop scanning it.
           console.error(
-            `[community-health] r/${subreddit} unreachable — deactivating:`,
-            aboutError instanceof Error ? aboutError.message : aboutError
+            `[community-health] ${community.community_name} unreachable — deactivating:`,
+            probeError instanceof Error ? probeError.message : probeError
           );
           const { error: deactivateError } = await db
             .from('discovery_communities')
@@ -156,7 +195,7 @@ export const communityHealthCheck = inngest.createFunction(
         }
       }
 
-      return { checked: (communities ?? []).length, updated, deactivated };
+      return { checked: (communities ?? []).length, updated, deactivated, skipped };
     });
   }
 );

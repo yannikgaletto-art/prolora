@@ -44,6 +44,9 @@ export function connectErrorHint(error: unknown): string | null {
   switch (error.code) {
     case 'platform_not_configured':
       return 'The server operator has not added this platform’s app credentials yet.';
+    case 'oauth_app_missing':
+      // BYO-OAuth: this one the user can fix themselves, right here.
+      return 'Add your own developer app for this platform first — the setup panel walks you through it.';
     case 'invalid_instance':
       return 'Enter just the domain of your server, e.g. mastodon.social';
     case 'platform_unreachable':

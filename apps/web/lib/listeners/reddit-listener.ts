@@ -1,6 +1,6 @@
 import type { FeedbackSourceRow } from '@/lib/db';
-import type { RedditThread } from '@/lib/discovery/reddit-client';
-import { getRedditClientForWorkspace } from '@/lib/integrations/reddit-credentials';
+import type { DiscoveredThread } from '@/lib/integrations/registry';
+import { getDiscoveryProvider } from '@/lib/discovery/providers';
 import {
   BaseListener,
   type ListenerPollOutcome,
@@ -14,8 +14,12 @@ interface RedditSourceConfig {
 }
 
 // Polls Reddit for brand mentions: for every subreddit x keyword pair it
-// runs a keyword search (sort=new) via the workspace's app-only RedditClient
-// and keeps only threads newer than the stored cursor (max created_utc seen).
+// runs a keyword search (sort=new) through the Reddit DiscoveryProvider and
+// keeps only threads newer than the stored cursor (max created timestamp seen).
+//
+// It talks to the provider rather than to RedditClient so that "which Reddit
+// credentials does this workspace use" stays one decision in one place — the
+// same one Discover makes.
 export class RedditListener extends BaseListener {
   readonly sourceType = 'reddit';
 
@@ -28,9 +32,9 @@ export class RedditListener extends BaseListener {
       return { items: [], nextCursor: source.last_poll_cursor };
     }
 
-    // Cursor = newest created_utc (seconds) already ingested.
+    // Cursor = newest created timestamp (seconds) already ingested.
     const cursorTs = parseCursor(source.last_poll_cursor);
-    const client = await getRedditClientForWorkspace(source.workspace_id);
+    const provider = await getDiscoveryProvider(source.workspace_id, 'reddit');
     const seen = new Set<string>();
     const items: RawFeedbackItem[] = [];
     let maxTs = cursorTs ?? 0;
@@ -40,16 +44,16 @@ export class RedditListener extends BaseListener {
       let subredditCount = 0;
       for (const keyword of config.brand_keywords) {
         try {
-          const threads = await client.searchThreads(subreddit, keyword, {
+          const threads = await provider.searchThreads(subreddit, keyword, {
             time: 'week',
             limit: 100,
           });
           for (const thread of threads) {
-            if (seen.has(thread.fullname)) continue;
-            seen.add(thread.fullname);
+            if (seen.has(thread.externalId)) continue;
+            seen.add(thread.externalId);
             // Only new items beyond the cursor — dedupe against older runs.
-            if (cursorTs !== null && thread.created_utc <= cursorTs) continue;
-            if (thread.created_utc > maxTs) maxTs = thread.created_utc;
+            if (cursorTs !== null && thread.createdAt <= cursorTs) continue;
+            if (thread.createdAt > maxTs) maxTs = thread.createdAt;
             items.push(threadToRawFeedbackItem(thread));
             subredditCount += 1;
           }
@@ -82,17 +86,16 @@ export class RedditListener extends BaseListener {
   }
 }
 
-function threadToRawFeedbackItem(thread: RedditThread): RawFeedbackItem {
-  const content = [thread.title, thread.selftext].filter(Boolean).join('\n\n').trim();
+function threadToRawFeedbackItem(thread: DiscoveredThread): RawFeedbackItem {
+  const content = [thread.title, thread.body].filter(Boolean).join('\n\n').trim();
   return {
-    source_external_id: thread.fullname,
-    source_url: thread.permalink,
+    source_external_id: thread.externalId,
+    source_url: thread.url,
     author_name: thread.author || null,
     author_avatar: null,
     content,
     rating: null,
-    source_date:
-      thread.created_utc > 0 ? new Date(thread.created_utc * 1000).toISOString() : null,
+    source_date: thread.createdAt > 0 ? new Date(thread.createdAt * 1000).toISOString() : null,
   };
 }
 

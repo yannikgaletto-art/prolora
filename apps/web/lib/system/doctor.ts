@@ -3,6 +3,7 @@
 import { PLAN_LIMITS, type AppLocale, type PlanType } from '@prolora/shared';
 import { getServiceDb } from '@/lib/db';
 import { isRedditConfigured } from '@/lib/integrations/reddit-credentials';
+import { isOAuthAppConfigured } from '@/lib/auth/byo-oauth';
 
 /**
  * Machine-readable reason a feature is not ready. The UI branches on this —
@@ -73,8 +74,9 @@ const HINTS: Record<AppLocale, Record<string, string>> = {
       'Background-Jobs laufen nicht — Generierungen würden nie fertig. In Production beide Inngest-Keys setzen, lokal den Inngest-Dev-Server starten.',
     reddit: 'Reddit ist noch nicht verbunden. Du kannst das direkt hier erledigen.',
     discoveryCredits: 'Community-Suche benötigt verfügbare KI-Credits.',
-    linkedin: 'LinkedIn OAuth muss vom Betreiber konfiguriert werden.',
-    x: 'X OAuth muss vom Betreiber konfiguriert werden.',
+    linkedin:
+      'Noch keine LinkedIn-App hinterlegt. Unter Verbindungen deine eigene LinkedIn-App eintragen — dauert etwa zwei Minuten.',
+    x: 'Noch keine X-App hinterlegt. Unter Verbindungen deine eigene X-App eintragen — dauert etwa zwei Minuten.',
     inngest:
       'In Production müssen beide Inngest-Keys gesetzt sein; lokal den Inngest-Dev-Server starten.',
   },
@@ -86,8 +88,9 @@ const HINTS: Record<AppLocale, Record<string, string>> = {
       'Background jobs are not running — generations would never finish. Set both Inngest keys in production, or start the Inngest dev server locally.',
     reddit: 'Reddit is not connected yet. You can do that right here.',
     discoveryCredits: 'Community discovery needs available AI credits.',
-    linkedin: 'LinkedIn OAuth needs to be configured by the operator.',
-    x: 'X OAuth needs to be configured by the operator.',
+    linkedin:
+      'No LinkedIn app connected yet. Add your own LinkedIn app under Connections — about two minutes.',
+    x: 'No X app connected yet. Add your own X app under Connections — about two minutes.',
     inngest:
       'Both Inngest keys must be set in production; start the Inngest dev server locally.',
   },
@@ -99,8 +102,9 @@ const HINTS: Record<AppLocale, Record<string, string>> = {
       'Los trabajos en segundo plano no se ejecutan — las generaciones nunca terminarían. Define ambas claves de Inngest en producción o inicia el servidor de desarrollo de Inngest en local.',
     reddit: 'Reddit aún no está conectado. Puedes hacerlo aquí mismo.',
     discoveryCredits: 'El descubrimiento de comunidades necesita créditos de IA disponibles.',
-    linkedin: 'El operador debe configurar OAuth de LinkedIn.',
-    x: 'El operador debe configurar OAuth de X.',
+    linkedin:
+      'Todavía no hay ninguna app de LinkedIn. Añade tu propia app de LinkedIn en Conexiones — unos dos minutos.',
+    x: 'Todavía no hay ninguna app de X. Añade tu propia app de X en Conexiones — unos dos minutos.',
     inngest:
       'En producción deben estar definidas ambas claves de Inngest; en local inicia el servidor de desarrollo de Inngest.',
   },
@@ -124,9 +128,11 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
     ...(!input.configured.anthropic ? ['ANTHROPIC_API_KEY'] : []),
     ...(!creditsAvailable ? ['AI_CREDITS'] : []),
   ];
-  const redditMissing = input.configured.reddit
-    ? []
-    : ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'];
+  // Marker, not env var names: since migration 014 the user enters their own
+  // Reddit app in the UI, so pointing at a file they cannot reach would be the
+  // very dead end this work removed. The UI hides markers for self-serviceable
+  // blockers.
+  const redditMissing = input.configured.reddit ? [] : ['REDDIT_APP'];
   const inngestMissing = input.configured.inngest
     ? []
     : (input.inngestMissing ?? ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY']);
@@ -149,25 +155,35 @@ export function buildSystemStatus(input: DoctorInput): SystemStatus {
         !input.configured.openai ? t.openai : t.inngestMedia,
         { blocker: !input.configured.openai ? 'openai_missing' : 'background_jobs_missing' }
       ),
-      discovery: feature(
-        [...redditMissing, ...aiMissing],
-        redditMissing.length > 0 ? t.reddit : t.discoveryCredits,
-        redditMissing.length > 0
-          ? { blocker: 'reddit_missing', selfServiceable: true }
-          : { blocker: 'ai_credits_exhausted' }
-      ),
+      // Discovery stopped depending on Reddit with the provider registry:
+      // Mastodon and Hacker News are public APIs that need no credential at all,
+      // so a workspace can find communities from its first second. Reddit and
+      // Bluesky are additional providers whose absence is per-provider
+      // information on the Discover page — reporting the whole feature as
+      // "setup required" was the false dead end this work set out to remove.
+      // AI credits remain a real blocker: the relevance rating is an LLM call.
+      discovery: feature(aiMissing, !input.configured.anthropic ? t.anthropic : t.discoveryCredits, {
+        blocker: !input.configured.anthropic ? 'anthropic_missing' : 'ai_credits_exhausted',
+      }),
+      // Reddit *listening* is a different matter — it genuinely reads Reddit and
+      // nothing else, so no credential means no feature. Self-serviceable since
+      // migration 014, hence a marker instead of env var names.
       listen_reddit: feature(redditMissing, t.reddit, {
         blocker: 'reddit_missing',
         selfServiceable: true,
       }),
       listen_widget: { state: 'ready' },
-      connect_linkedin: feature(
-        input.configured.linkedin ? [] : ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
-        t.linkedin,
-        { blocker: 'oauth_app_missing' }
-      ),
-      connect_x: feature(input.configured.x ? [] : ['X_CLIENT_ID', 'X_CLIENT_SECRET'], t.x, {
+      // Self-serviceable since BYO-OAuth: the missing piece is the *user's* own
+      // developer app, entered in the UI. Naming env vars here would point at a
+      // file they cannot reach for a problem they can already solve — so the
+      // marker (not an env name) is what travels, and the UI hides it.
+      connect_linkedin: feature(input.configured.linkedin ? [] : ['LINKEDIN_APP'], t.linkedin, {
         blocker: 'oauth_app_missing',
+        selfServiceable: true,
+      }),
+      connect_x: feature(input.configured.x ? [] : ['X_APP'], t.x, {
+        blocker: 'oauth_app_missing',
+        selfServiceable: true,
       }),
       background_jobs: feature(inngestMissing, t.inngest, {
         blocker: 'background_jobs_missing',
@@ -231,11 +247,14 @@ export async function getSystemStatus(
     if (rows.length < pageSize) break;
   }
 
-  // Reddit readiness is workspace-scoped since migration 014: a workspace with
-  // its own connected app is ready even when the process env has no keys.
-  const [inngest, reddit] = await Promise.all([
+  // Reddit readiness is workspace-scoped since migration 014, LinkedIn/X since
+  // BYO-OAuth: a workspace with its own connected app is ready even when the
+  // process env has no keys (and the env still works as the fallback).
+  const [inngest, reddit, linkedin, x] = await Promise.all([
     getBackgroundJobReadiness(),
     isRedditConfigured(workspaceId),
+    isOAuthAppConfigured(workspaceId, 'linkedin'),
+    isOAuthAppConfigured(workspaceId, 'x'),
   ]);
 
   return buildSystemStatus({
@@ -246,8 +265,8 @@ export async function getSystemStatus(
       anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
       openai: Boolean(process.env.OPENAI_API_KEY),
       reddit,
-      linkedin: Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET),
-      x: Boolean(process.env.X_CLIENT_ID && process.env.X_CLIENT_SECRET),
+      linkedin,
+      x,
       inngest: inngest.ready,
     },
     inngestMissing: inngest.missing,

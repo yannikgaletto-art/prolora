@@ -18,9 +18,18 @@ import {
   connectErrorHint,
   type OAuthPlatform,
 } from '@/app/lib/connect';
+import { ConnectChannelPanel } from '@/app/components/ConnectChannelPanel';
 import type { ConnectionListItem } from '@/lib/connections/list-connections';
-import { CONNECTION_REGISTRY, getConnectorDescriptor, type PlatformConnectorDescriptor } from '@/lib/connections/registry';
-import type { FeatureState } from '@/lib/system/doctor';
+import {
+  CONNECTION_REGISTRY,
+  getConnectorDescriptor,
+  groupConnectorsByAvailability,
+  type ConnectorAvailability,
+  type OAuthAppStatusDto,
+  type PlatformConnectorDescriptor,
+} from '@/lib/connections/registry';
+import type { ChannelCapacity } from '@/lib/connections/capacity';
+import type { ConnectionHealth, ConnectionHealthState } from '@/lib/connections/health';
 import { getRun7Dict, type Run7Dict } from '@/lib/i18n/run7';
 
 // Platforms that authenticate via an OAuth consent screen. GOAL-RUN6 Phase 0:
@@ -69,6 +78,63 @@ function PlatformBadge({ platform, size = 10 }: { platform: PlatformType; size?:
   );
 }
 
+// The four registry categories are four different promises, so they get four
+// different sections rather than one alphabetised list where "coming soon"
+// looks like a button that failed.
+const AVAILABILITY_TONE: Record<ConnectorAvailability, 'green' | 'amber' | 'gray'> = {
+  available: 'green',
+  oauth_byo: 'amber',
+  manual_assist: 'gray',
+  coming_soon: 'gray',
+};
+
+function availabilityLabel(
+  availability: ConnectorAvailability,
+  strings: Run7Dict['connections']
+): string {
+  if (availability === 'available') return strings.available;
+  if (availability === 'oauth_byo') return strings.setupNeeded;
+  if (availability === 'coming_soon') return strings.comingSoon;
+  return strings.manualAssist;
+}
+
+const CATEGORY_HEADINGS: Record<ConnectorAvailability, { title: string; blurb: string }> = {
+  available: { title: 'Ready to connect', blurb: 'One sign-in and Prolora can publish.' },
+  oauth_byo: {
+    title: 'Bring your own app',
+    blurb: 'These platforms issue credentials per developer account — about two minutes of setup.',
+  },
+  manual_assist: {
+    title: 'Manual assist',
+    blurb: 'No usable posting API. Prolora prepares the copy and opens the page.',
+  },
+  coming_soon: { title: 'Not available yet', blurb: 'Waiting on provider access. Nothing to do here.' },
+};
+
+// Traffic light: one glyph, one meaning, everywhere on the page.
+const HEALTH_DOT: Record<ConnectionHealthState, { color: string; label: string }> = {
+  healthy: { color: 'bg-green-500', label: 'Healthy' },
+  expiring_soon: { color: 'bg-amber-500', label: 'Expiring soon' },
+  expired: { color: 'bg-red-500', label: 'Expired' },
+  revoked: { color: 'bg-red-500', label: 'Revoked' },
+};
+
+function HealthDot({ state }: { state: ConnectionHealthState }) {
+  const meta = HEALTH_DOT[state];
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${meta.color}`} />
+      <span className="text-xs text-gray-600">{meta.label}</span>
+    </span>
+  );
+}
+
+function capacityLabel(capacity: ChannelCapacity | undefined): string {
+  if (!capacity) return '—';
+  if (capacity.blocked) return '0';
+  return capacity.remainingToday === null ? '∞' : String(capacity.remainingToday);
+}
+
 function PickerRow({
   connector,
   onSelect,
@@ -92,18 +158,37 @@ function PickerRow({
         <span className="block text-sm font-medium text-gray-900">{connector.label}</span>
         <span className="block truncate text-xs text-gray-500">{connector.description}</span>
       </span>
-      <Badge tone={connector.availability === 'available' ? 'green' : connector.availability === 'setup_required' ? 'amber' : 'gray'}>
-        {connector.availability === 'available' ? strings.available : connector.availability === 'setup_required' ? strings.setupNeeded : connector.availability === 'coming_soon' ? strings.comingSoon : strings.manualAssist}
+      <Badge tone={AVAILABILITY_TONE[connector.availability]}>
+        {availabilityLabel(connector.availability, strings)}
       </Badge>
       {pending && <span className="ml-auto text-xs text-gray-400">{strings.opening}</span>}
     </button>
   );
 }
 
-export function ConnectionsView({ initialConnections, connectStates, locale }: { initialConnections: ConnectionListItem[]; connectStates: { linkedin: FeatureState; x: FeatureState }; locale: AppLocale }) {
+export interface ConnectionsViewProps {
+  initialConnections: ConnectionListItem[];
+  health: ConnectionHealth[];
+  capacity: ChannelCapacity[];
+  oauthApps: Record<'linkedin' | 'x', OAuthAppStatusDto>;
+  locale: AppLocale;
+}
+
+export function ConnectionsView({
+  initialConnections,
+  health,
+  capacity,
+  oauthApps,
+  locale,
+}: ConnectionsViewProps) {
   const strings = getRun7Dict(locale).connections;
   const router = useRouter();
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [appStatuses, setAppStatuses] = useState(oauthApps);
+  const [byoPlatform, setByoPlatform] = useState<'linkedin' | 'x' | null>(null);
+
+  const healthById = new Map(health.map((item) => [item.connectionId, item]));
+  const capacityById = new Map(capacity.map((item) => [item.connectionId, item]));
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerError, setPickerError] = useState<{ message: string; hint: string | null } | null>(null);
@@ -138,12 +223,18 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
   function openConnect(connector: PlatformConnectorDescriptor) {
     setPickerInfo(null);
     const platform = connector.id;
-    if (platform === 'linkedin' || platform === 'x') {
-      const state = connectStates[platform];
-      if (state.state !== 'ready') {
-        setPickerInfo({ title: `${connector.label}: ${strings.setupRequired}`, description: state.hint ?? connector.description });
+    // BYO-OAuth: an already-stored app skips straight to the consent screen;
+    // otherwise the panel collects it first. Either way the user never hits a
+    // message about someone else having to act.
+    if (connector.connectFlow === 'oauth_byo' && (platform === 'linkedin' || platform === 'x')) {
+      if (appStatuses[platform].connected) {
+        void handleOAuthConnect(platform);
         return;
       }
+      setPickerOpen(false);
+      setPickerError(null);
+      setByoPlatform(platform);
+      return;
     }
     if (connector.connectFlow === 'info') {
       setPickerInfo({ title: connector.label, description: connector.description, deepLink: connector.deepLink });
@@ -201,6 +292,9 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
       // No cleanup: window.location.assign is already navigating away.
     } catch (error) {
       setPickerError({ message: errorMessage(error), hint: connectErrorHint(error) });
+      // The same handler serves the card's Reconnect button, where the picker
+      // is closed and an inline error would be invisible.
+      if (!pickerOpen) setToast({ variant: 'error', message: errorMessage(error) });
       setOauthPending(null);
     }
   }
@@ -325,11 +419,58 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
     }
   }
 
+  // Reconnect reuses the connect flow rather than a second code path: a
+  // reconnect that skipped the BYO step would 503 for a workspace whose stored
+  // app was removed in the meantime.
+  function reconnect(connection: ConnectionListItem) {
+    const connector = CONNECTION_REGISTRY.find((item) => item.id === connection.platform);
+    if (connector) openConnect(connector);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
         <Button onClick={() => setPickerOpen(true)}>Connect New</Button>
       </div>
+
+      {/* Capacity is a planning number, so it belongs above the fold rather than
+          inside a card the user has to open. Blocked channels stay listed at 0
+          instead of disappearing — a missing row reads as "no problem". */}
+      {capacity.length > 0 && (
+        <Card
+          title="Today's capacity"
+          description="What each channel can still take before its daily cap or rate-limit window resets."
+        >
+          <ul className="flex flex-wrap gap-x-6 gap-y-2">
+            {capacity.map((item) => {
+              const connection = initialConnections.find(
+                (candidate) => candidate.connection_id === item.connectionId
+              );
+              return (
+                <li key={item.connectionId} className="flex items-baseline gap-2">
+                  <span className="text-sm text-gray-600">
+                    {connection?.account_name ?? getConnectorDescriptor(item.platform)?.label ?? item.platform}
+                  </span>
+                  <span
+                    className={`text-sm font-semibold ${item.blocked ? 'text-red-600' : 'text-gray-900'}`}
+                  >
+                    {capacityLabel(item)}
+                  </span>
+                  {item.blocked && (
+                    <span className="text-xs text-red-600">
+                      {item.blockedReason === 'rate_limited'
+                        ? 'rate limited'
+                        : item.blockedReason === 'revoked'
+                          ? 'revoked'
+                          : 'token expired'}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
 
       {initialConnections.length === 0 ? (
         <EmptyState
@@ -342,6 +483,12 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
           {initialConnections.map((connection) => {
             const meta = getConnectorDescriptor(connection.platform);
             const isActive = connection.status === 'active';
+            const state = healthById.get(connection.connection_id);
+            const channelCapacity = capacityById.get(connection.connection_id);
+            const daysLeft = state?.expiresInDays ?? null;
+            // The whole point of the monitor: warn while reconnecting is still
+            // a choice, not a recovery.
+            const warnExpiring = state?.state === 'expiring_soon' && daysLeft !== null;
             return (
               <Card key={connection.connection_id}>
                 <div className="flex items-start justify-between gap-3">
@@ -355,7 +502,36 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
                   <Badge status={connection.status} />
                 </div>
 
-                <p className="mt-4 text-xs text-gray-500">
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  {state && <HealthDot state={state.state} />}
+                  <span className="text-xs text-gray-500">
+                    Today: {capacityLabel(channelCapacity)}
+                  </span>
+                </div>
+
+                {warnExpiring && (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-900">
+                      {daysLeft <= 0
+                        ? 'Token expires today.'
+                        : `Token expires in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}.`}{' '}
+                      {state?.canAutoRefresh
+                        ? 'Prolora will try to refresh it automatically.'
+                        : 'Reconnect to keep publishing.'}
+                    </p>
+                    <Button
+                      className="mt-2"
+                      variant="secondary"
+                      size="sm"
+                      loading={oauthPending === connection.platform}
+                      onClick={() => reconnect(connection)}
+                    >
+                      Reconnect now
+                    </Button>
+                  </div>
+                )}
+
+                <p className="mt-3 text-xs text-gray-500">
                   Last used: {formatLastUsed(connection.last_used_at)}
                 </p>
 
@@ -368,28 +544,13 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
                     >
                       Disconnect
                     </Button>
-                  ) : getConnectorDescriptor(connection.platform)?.authKind === 'oauth2' ? (
+                  ) : (
                     <Button
                       variant="primary"
                       size="sm"
                       loading={oauthPending === connection.platform}
-                      onClick={async () => {
-                        try {
-                          setOauthPending(connection.platform as OAuthPlatform);
-                          await startOAuthConnect(connection.platform as OAuthPlatform);
-                        } catch (error) {
-                          setToast({ variant: 'error', message: errorMessage(error) });
-                          setOauthPending(null);
-                        }
-                      }}
+                      onClick={() => reconnect(connection)}
                     >
-                      Reconnect
-                    </Button>
-                  ) : (
-                    <Button variant="primary" size="sm" onClick={() => {
-                      const connector = CONNECTION_REGISTRY.find((item) => item.id === connection.platform);
-                      if (connector) openConnect(connector);
-                    }}>
                       Reconnect
                     </Button>
                   )}
@@ -410,22 +571,28 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
         title="Connect a new account"
         description="Choose a platform to connect to this workspace."
       >
-        <div className="space-y-2">
-          {CONNECTION_REGISTRY.map((connector) => {
-            const availability =
-              (connector.id === 'linkedin' || connector.id === 'x') && connectStates[connector.id].state === 'ready'
-                ? 'available'
-                : connector.availability;
-            return (
-              <PickerRow
-                key={connector.id}
-                connector={{ ...connector, availability }}
-                onSelect={openConnect}
-                pending={oauthPending === connector.id}
-                strings={strings}
-              />
-            );
-          })}
+        <div className="space-y-5">
+          {groupConnectorsByAvailability().map((group) => (
+            <section key={group.availability}>
+              <h3 className="text-xs font-semibold tracking-wide text-gray-900 uppercase">
+                {CATEGORY_HEADINGS[group.availability].title}
+              </h3>
+              <p className="mt-0.5 mb-2 text-xs text-gray-500">
+                {CATEGORY_HEADINGS[group.availability].blurb}
+              </p>
+              <div className="space-y-2">
+                {group.connectors.map((connector) => (
+                  <PickerRow
+                    key={connector.id}
+                    connector={connector}
+                    onSelect={openConnect}
+                    pending={oauthPending === connector.id}
+                    strings={strings}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
         {pickerError && (
           <div className="mt-3 rounded-md bg-red-50 px-3 py-2">
@@ -613,6 +780,28 @@ export function ConnectionsView({ initialConnections, connectStates, locale }: {
               </Button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* BYO-OAuth: store the workspace's own app, then hand off to consent. */}
+      <Modal
+        open={byoPlatform !== null}
+        onClose={() => setByoPlatform(null)}
+        title={byoPlatform ? `Connect ${appStatuses[byoPlatform].label}` : ''}
+        description="Prolora publishes through your own developer app."
+      >
+        {byoPlatform && (
+          <ConnectChannelPanel
+            embedded
+            platform={byoPlatform}
+            label={appStatuses[byoPlatform].label}
+            descriptor={getConnectorDescriptor(byoPlatform)!.oauthApp!}
+            status={appStatuses[byoPlatform]}
+            onStatusChange={(next) => {
+              setAppStatuses((current) => ({ ...current, [next.platform]: next }));
+              router.refresh();
+            }}
+          />
         )}
       </Modal>
 

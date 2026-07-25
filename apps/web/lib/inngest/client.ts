@@ -14,6 +14,19 @@ export type ProloraEvents = {
   'feedback/poll': { data: { workspaceId?: string; sourceId?: string } };
   'tokens/refresh': { data: { connectionId: string; workspaceId: string } };
   'tokens/health-check': { data: { connectionId?: string } };
+  // Emitted by the daily classifier (functions/connection-health.ts) when a
+  // connection's derived health differs from what its `status` column says.
+  'connection/health-changed': {
+    data: {
+      connectionId: string;
+      workspaceId: string;
+      platform: string;
+      state: 'healthy' | 'expiring_soon' | 'expired' | 'revoked';
+      previousState: 'healthy' | 'expiring_soon' | 'expired' | 'revoked';
+      tokenExpiresAt: string | null;
+      expiresInDays: number | null;
+    };
+  };
   'metrics/collect': { data: { postItemId: string; workspaceId: string } };
   'webhooks/fire': { data: { workspaceId: string; event: string; payload: Record<string, unknown> } };
   'digest/daily': { data: { workspaceId: string } };

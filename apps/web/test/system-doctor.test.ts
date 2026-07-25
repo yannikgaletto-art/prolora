@@ -7,7 +7,11 @@ afterEach(() => {
 });
 
 describe('buildSystemStatus', () => {
-  it('explains missing Reddit configuration without exposing secret values', () => {
+  // Discovery used to be reported as blocked whenever Reddit was absent. With
+  // Mastodon and Hacker News on public APIs that is simply false, and a false
+  // "setup required" is the dead end this whole line of work removed — so the
+  // regression guard is now that discovery stays *ready* without Reddit.
+  it('keeps discovery ready without Reddit, and never names an env var the user cannot set', () => {
     const status = buildSystemStatus({
       plan: 'agency',
       creditsUsed: 12,
@@ -21,12 +25,21 @@ describe('buildSystemStatus', () => {
       },
     });
 
-    expect(status.features.discovery).toMatchObject({
+    expect(status.features.discovery.state).toBe('ready');
+
+    // Reddit *listening* genuinely reads Reddit and nothing else, so it stays
+    // blocked — but self-serviceable, and described by a marker rather than the
+    // names of env vars the user has no access to.
+    expect(status.features.listen_reddit).toMatchObject({
       state: 'setup_required',
-      missing: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
+      selfServiceable: true,
+      missing: ['REDDIT_APP'],
     });
-    expect(status.features.listen_reddit.state).toBe('setup_required');
-    expect(JSON.stringify(status)).not.toContain('sk-');
+
+    const serialised = JSON.stringify(status);
+    expect(serialised).not.toContain('sk-');
+    expect(serialised).not.toContain('REDDIT_CLIENT_ID');
+    expect(serialised).not.toContain('REDDIT_CLIENT_SECRET');
   });
 
   it('marks credit-backed AI features unavailable when the monthly quota is exhausted', () => {
@@ -105,6 +118,64 @@ describe('buildSystemStatus', () => {
       missing: ['INNGEST_DEV_SERVER'],
     });
     expect(status.features.media_generation.hint).toContain('Inngest');
+  });
+
+  // BYO-OAuth: the blocker is the user's own developer app, which they enter in
+  // the UI — so the hint must not send them to an env file they cannot reach.
+  it('presents LinkedIn and X as self-serviceable without naming env variables', () => {
+    for (const locale of ['de', 'en', 'es'] as const) {
+      const status = buildSystemStatus({
+        plan: 'pro',
+        creditsUsed: 0,
+        locale,
+        configured: {
+          anthropic: true,
+          openai: true,
+          reddit: true,
+          linkedin: false,
+          x: false,
+          inngest: true,
+        },
+      });
+
+      for (const feature of [status.features.connect_linkedin, status.features.connect_x]) {
+        expect(feature.state).toBe('setup_required');
+        expect(feature.selfServiceable).toBe(true);
+        expect(feature.blocker).toBe('oauth_app_missing');
+        expect(feature.hint).not.toMatch(/CLIENT_ID|CLIENT_SECRET/);
+      }
+    }
+
+    const de = buildSystemStatus({
+      plan: 'pro',
+      creditsUsed: 0,
+      locale: 'de',
+      configured: { anthropic: true, openai: true, reddit: true, linkedin: false, x: false, inngest: true },
+    });
+    const es = buildSystemStatus({
+      plan: 'pro',
+      creditsUsed: 0,
+      locale: 'es',
+      configured: { anthropic: true, openai: true, reddit: true, linkedin: false, x: false, inngest: true },
+    });
+    expect(de.features.connect_x.hint).not.toBe(es.features.connect_x.hint);
+  });
+
+  it('reports LinkedIn and X ready once the workspace has its own app', () => {
+    const status = buildSystemStatus({
+      plan: 'pro',
+      creditsUsed: 0,
+      configured: {
+        anthropic: true,
+        openai: true,
+        reddit: true,
+        linkedin: true,
+        x: true,
+        inngest: true,
+      },
+    });
+    expect(status.features.connect_linkedin.state).toBe('ready');
+    expect(status.features.connect_x.state).toBe('ready');
   });
 
   it('checks the local Inngest dev server instead of treating key names as runtime readiness', async () => {

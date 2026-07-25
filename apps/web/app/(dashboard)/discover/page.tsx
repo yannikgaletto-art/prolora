@@ -6,6 +6,8 @@ import { getCommunities } from '@/lib/discovery/list-communities';
 import { EmptyState } from '@/app/components/EmptyState';
 import { AddCommunitiesButton } from './AddCommunitiesButton';
 import { CommunityGrid } from './CommunityGrid';
+import { ProviderStrip } from './ProviderStrip';
+import { listDiscoveryProviderStatuses } from '@/lib/discovery/providers';
 import { getSystemStatus } from '@/lib/system/doctor';
 import { getLocale } from '@/lib/i18n/server';
 
@@ -13,6 +15,11 @@ export const metadata: Metadata = { title: 'Discover — Prolora' };
 
 // Server Component (F0-4, Pfad A): reads discovery_communities through the
 // service layer directly — never by fetch()-ing our own /api/v1 route.
+//
+// The "connect Reddit first" gate is gone: Mastodon and Hacker News need no
+// credentials, so an empty Discover page is now an empty *result*, not a locked
+// door. Whether Reddit is set up is one row in the platform strip, not the
+// state of the whole feature.
 export default async function DiscoverPage() {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.getUser(); // session already validated by the dashboard layout
@@ -20,12 +27,12 @@ export default async function DiscoverPage() {
   if (!workspace) redirect('/onboarding');
 
   const locale = await getLocale();
-  const [communities, systemStatus] = await Promise.all([
+  const [communities, systemStatus, providers] = await Promise.all([
     getCommunities(workspace.id),
     getSystemStatus(workspace.id, locale),
+    listDiscoveryProviderStatuses(workspace.id),
   ]);
   const discoveryState = systemStatus.features.discovery;
-  const needsReddit = discoveryState.blocker === 'reddit_missing';
 
   return (
     <div className="space-y-6">
@@ -37,18 +44,20 @@ export default async function DiscoverPage() {
             them on its own schedule — new opportunities show up under Opportunities.
           </p>
         </div>
-        {communities.length > 0 && <AddCommunitiesButton featureState={discoveryState} />}
+        {communities.length > 0 && (
+          <AddCommunitiesButton featureState={discoveryState} initialProviders={providers} />
+        )}
       </div>
+
+      <ProviderStrip providers={providers} />
 
       {communities.length === 0 ? (
         <EmptyState
-          title={needsReddit ? 'Connect Reddit to get started' : 'No communities mapped yet'}
-          description={
-            needsReddit
-              ? 'Community discovery reads Reddit with your own app key. Connecting takes about a minute and only needs to happen once.'
-              : 'Describe your product and target audience to find relevant communities and their posting rules.'
+          title="No communities mapped yet"
+          description="Describe your product and target audience to find relevant communities and their posting rules. Mastodon and Hacker News work without any setup."
+          action={
+            <AddCommunitiesButton featureState={discoveryState} initialProviders={providers} />
           }
-          action={<AddCommunitiesButton featureState={discoveryState} />}
         />
       ) : (
         <CommunityGrid communities={communities} />

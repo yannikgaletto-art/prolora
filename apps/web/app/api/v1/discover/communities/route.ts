@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { communityDiscoverySchema } from '@prolora/shared';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError } from '@/lib/api/http';
 import { mapCommunities } from '@/lib/discovery/community-mapper';
+import { INTEGRATION_PROVIDERS, isIntegrationProvider } from '@/lib/integrations/types';
 import { getServiceDb, type DiscoveryCommunityRow } from '@/lib/db';
+
+// `platforms` is validated here rather than in @prolora/shared: the shared enum
+// still lists the pre-multi-provider set, and widening a published contract is
+// a separate decision from making Discover multi-platform. The shared schema
+// never sees the field.
+const platformsSchema = z
+  .array(z.string().refine(isIntegrationProvider, { message: 'unknown platform' }))
+  .max(INTEGRATION_PROVIDERS.length)
+  .optional();
 
 // POST /api/v1/discover/communities — map ICP -> relevant communities
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -14,14 +25,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return jsonError(400, 'Request body must be valid JSON.', 'invalid_request');
     }
 
+    const { platforms: rawPlatforms, ...rest } = (body ?? {}) as Record<string, unknown>;
+    const platforms = platformsSchema.parse(rawPlatforms);
+
     // workspace_id in the schema is legacy — auth wins (Invariante 2).
-    const input = communityDiscoverySchema.parse({ ...(body as object), workspace_id: workspaceId });
+    const input = communityDiscoverySchema.parse({ ...rest, workspace_id: workspaceId });
 
     const communities = await mapCommunities({
       workspaceId,
       productDescription: input.product_description,
       targetAudience: input.target_audience,
       competitors: input.competitors,
+      platforms,
     });
 
     return NextResponse.json({ communities, total: communities.length });

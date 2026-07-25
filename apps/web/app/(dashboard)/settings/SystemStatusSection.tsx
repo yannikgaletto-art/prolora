@@ -1,10 +1,43 @@
 import { Badge } from '@/app/components/Badge';
 import { Card } from '@/app/components/Card';
 import { getSystemStatus, type FeatureState } from '@/lib/system/doctor';
-import { getRedditIntegrationStatus } from '@/lib/integrations/reddit-credentials';
+import { getIntegrationStatus } from '@/lib/integrations/credentials';
+import { listDiscoveryDescriptors } from '@/lib/integrations/registry';
+import { getDiscoveryProviderStatus } from '@/lib/discovery/providers';
 import type { AppLocale } from '@prolora/shared';
 import { getRun7Dict } from '@/lib/i18n/run7';
-import { RedditIntegrationCard } from './RedditIntegrationCard';
+import { IntegrationsCard, type ProviderCardEntry } from './IntegrationsCard';
+
+// `reuse_connection` providers hold nothing in the credential store, so their
+// "connected" answer has to come from the connection they borrow — asking the
+// store would always say no.
+async function loadIntegrationEntries(workspaceId: string): Promise<ProviderCardEntry[]> {
+  return Promise.all(
+    listDiscoveryDescriptors().map(async (descriptor) => {
+      if (descriptor.credentialKind === 'reuse_connection') {
+        const availability = await getDiscoveryProviderStatus(workspaceId, descriptor.id);
+        return {
+          provider: descriptor.id,
+          status: {
+            connected: availability.available,
+            source: null,
+            clientIdHint: null,
+            verifiedAt: null,
+            lastError: null,
+          },
+        };
+      }
+      const { connected, source, clientIdHint, verifiedAt, lastError } = await getIntegrationStatus(
+        workspaceId,
+        descriptor.id
+      );
+      return {
+        provider: descriptor.id,
+        status: { connected, source, clientIdHint, verifiedAt, lastError },
+      };
+    })
+  );
+}
 
 const STATE_TONES: Record<FeatureState['state'], 'green' | 'amber' | 'gray'> = {
   ready: 'green',
@@ -13,9 +46,9 @@ const STATE_TONES: Record<FeatureState['state'], 'green' | 'amber' | 'gray'> = {
 };
 
 export async function SystemStatusSection({ workspaceId, locale }: { workspaceId: string; locale: AppLocale }) {
-  const [status, reddit] = await Promise.all([
+  const [status, integrations] = await Promise.all([
     getSystemStatus(workspaceId, locale),
-    getRedditIntegrationStatus(workspaceId),
+    loadIntegrationEntries(workspaceId),
   ]);
   const dict = getRun7Dict(locale).system;
   const featureLabels: Record<keyof typeof status.features, string> = {
@@ -27,7 +60,7 @@ export async function SystemStatusSection({ workspaceId, locale }: { workspaceId
 
   return (
     <div className="space-y-4">
-      <RedditIntegrationCard initialStatus={reddit} />
+      <IntegrationsCard initial={integrations} />
 
       <Card title={dict.title} description={dict.description}>
         <ul className="divide-y divide-gray-100">

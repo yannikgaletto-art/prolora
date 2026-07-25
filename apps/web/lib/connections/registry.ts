@@ -1,13 +1,36 @@
 // GOAL-RUN7 T6: one metadata source drives the picker. A channel is only
 // "available" when a real connect + publish path exists in this codebase.
-export type ConnectorAvailability = 'available' | 'setup_required' | 'coming_soon' | 'manual_assist';
+//
+// `oauth_byo` replaced `setup_required` for LinkedIn and X: the old label named
+// a blocker only the deployment operator could clear, while the person reading
+// it was the one who owns the developer app. The flow is still OAuth — the
+// workspace supplies the app first (lib/auth/byo-oauth.ts), then redirects.
+export type ConnectorAvailability = 'available' | 'oauth_byo' | 'coming_soon' | 'manual_assist';
 export type IntegrationKind = 'api' | 'manual_assist';
-export type ConnectorFlow = 'oauth' | 'mastodon' | 'bluesky' | 'telegram' | 'credential' | 'info';
+export type ConnectorFlow =
+  | 'oauth'
+  | 'oauth_byo'
+  | 'mastodon'
+  | 'bluesky'
+  | 'telegram'
+  | 'credential'
+  | 'info';
 
 export interface CredentialFormDescriptor {
   description: string;
   secretLabel: string;
   fields?: Array<{ key: string; label: string; placeholder?: string }>;
+}
+
+/** Everything ConnectChannelPanel needs to walk a user through their own app. */
+export interface OAuthAppDescriptor {
+  /** Credential provider key in lib/integrations (workspace-owned app secrets). */
+  provider: 'linkedin_app' | 'x_app';
+  /** Where the user creates the app. */
+  consoleUrl: string;
+  consoleLabel: string;
+  /** Scopes the app must request — shown so review submissions match. */
+  scopes: string[];
 }
 
 export interface PlatformConnectorDescriptor {
@@ -20,13 +43,14 @@ export interface PlatformConnectorDescriptor {
   authKind: 'oauth2' | 'instance_oauth2' | 'app_password' | 'bot_token' | 'webhook_url' | 'api_key' | 'none';
   connectFlow: ConnectorFlow;
   credentialForm?: CredentialFormDescriptor;
+  oauthApp?: OAuthAppDescriptor;
   description: string;
   deepLink?: string;
 }
 
 export const CONNECTION_REGISTRY: PlatformConnectorDescriptor[] = [
-  { id: 'linkedin', label: 'LinkedIn', initial: 'in', color: '#0A66C2', availability: 'setup_required', integrationKind: 'api', authKind: 'oauth2', connectFlow: 'oauth', description: 'Operator OAuth setup required.' },
-  { id: 'x', label: 'X', initial: 'X', color: '#000000', availability: 'setup_required', integrationKind: 'api', authKind: 'oauth2', connectFlow: 'oauth', description: 'Operator OAuth setup required.' },
+  { id: 'linkedin', label: 'LinkedIn', initial: 'in', color: '#0A66C2', availability: 'oauth_byo', integrationKind: 'api', authKind: 'oauth2', connectFlow: 'oauth_byo', description: 'Connect with your own LinkedIn developer app.', oauthApp: { provider: 'linkedin_app', consoleUrl: 'https://www.linkedin.com/developers/apps/new', consoleLabel: 'linkedin.com/developers', scopes: ['openid', 'profile', 'email', 'w_member_social'] } },
+  { id: 'x', label: 'X', initial: 'X', color: '#000000', availability: 'oauth_byo', integrationKind: 'api', authKind: 'oauth2', connectFlow: 'oauth_byo', description: 'Connect with your own X developer app.', oauthApp: { provider: 'x_app', consoleUrl: 'https://developer.x.com/en/portal/dashboard', consoleLabel: 'developer.x.com', scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'] } },
   { id: 'bluesky', label: 'Bluesky', initial: 'B', color: '#1185FE', availability: 'available', integrationKind: 'api', authKind: 'app_password', connectFlow: 'bluesky', description: 'Connect with handle and app password.' },
   { id: 'mastodon', label: 'Mastodon', initial: 'M', color: '#6364FF', availability: 'available', integrationKind: 'api', authKind: 'instance_oauth2', connectFlow: 'mastodon', description: 'Connect any public Mastodon instance.' },
   { id: 'telegram', label: 'Telegram', initial: 'T', color: '#26A5E4', availability: 'available', integrationKind: 'api', authKind: 'bot_token', connectFlow: 'telegram', description: 'Connect a bot to a chat or channel.' },
@@ -50,4 +74,39 @@ export const CONNECTION_REGISTRY: PlatformConnectorDescriptor[] = [
 
 export function getConnectorDescriptor(id: string): PlatformConnectorDescriptor | undefined {
   return CONNECTION_REGISTRY.find((connector) => connector.id === id);
+}
+
+/**
+ * What GET/PUT/DELETE /api/v1/connections/oauth-app/{platform} return. Lives in
+ * this dependency-free module so Client Components can type the response
+ * without pulling the server-only credential store into the browser bundle.
+ */
+export interface OAuthAppStatusDto {
+  platform: 'linkedin' | 'x';
+  label: string;
+  /** The callback the user has to register in their own app. */
+  redirect_uri: string;
+  connected: boolean;
+  source: 'workspace' | 'environment' | null;
+  clientIdHint: string | null;
+  verifiedAt: string | null;
+  lastError: string | null;
+}
+
+/** Picker order: what works now first, what needs a decision last. */
+export const CONNECTOR_CATEGORY_ORDER: readonly ConnectorAvailability[] = [
+  'available',
+  'oauth_byo',
+  'manual_assist',
+  'coming_soon',
+] as const;
+
+export function groupConnectorsByAvailability(): Array<{
+  availability: ConnectorAvailability;
+  connectors: PlatformConnectorDescriptor[];
+}> {
+  return CONNECTOR_CATEGORY_ORDER.map((availability) => ({
+    availability,
+    connectors: CONNECTION_REGISTRY.filter((connector) => connector.availability === availability),
+  })).filter((group) => group.connectors.length > 0);
 }

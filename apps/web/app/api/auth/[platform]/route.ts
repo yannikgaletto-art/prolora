@@ -42,8 +42,11 @@ export async function GET(
     const workspaceId = await getWorkspaceId(req);
     const wantsJson = req.nextUrl.searchParams.get('format') === 'json';
 
+    // LinkedIn/X resolve the workspace's own OAuth app first (BYO), which makes
+    // the URL builders async — a missing app surfaces as 503 oauth_app_missing
+    // and the picker opens the setup panel instead of a dead end.
     if (platform === 'linkedin') {
-      const { url, state } = getLinkedInAuthUrl(workspaceId);
+      const { url, state } = await getLinkedInAuthUrl(workspaceId);
       const res = consentResponse(url, wantsJson);
       res.cookies.set(stateCookieName(platform), state, COOKIE_OPTIONS);
       return res;
@@ -51,7 +54,7 @@ export async function GET(
 
     if (platform === 'x') {
       const pkce = generatePkce();
-      const { url, state } = getXAuthUrl(workspaceId, pkce.challenge);
+      const { url, state } = await getXAuthUrl(workspaceId, pkce.challenge);
       const res = consentResponse(url, wantsJson);
       res.cookies.set(stateCookieName(platform), state, COOKIE_OPTIONS);
       res.cookies.set(PKCE_COOKIE, pkce.verifier, COOKIE_OPTIONS);

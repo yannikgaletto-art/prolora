@@ -1,24 +1,17 @@
+// Client ID/secret are workspace-owned (lib/auth/byo-oauth.ts) with the env as
+// fallback; the redirect URI, PKCE verifier and HMAC-signed state stay ours.
 import { createHash, randomBytes } from 'crypto';
 import { encrypt } from '@/lib/auth/encryption';
 import { saveConnection } from '@/lib/auth/connections';
 import { createOAuthState } from '@/lib/auth/oauth-state';
+import { assertOwnRedirectUri, byoRedirectUri, resolveOAuthApp } from '@/lib/auth/byo-oauth';
 import { ApiError } from '@/lib/api/http';
 import type { ConnectionRow } from '@/lib/db';
 
 const SCOPES = 'tweet.read tweet.write users.read offline.access';
 
-function getCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.X_CLIENT_ID;
-  const clientSecret = process.env.X_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new ApiError(500, 'X is not configured on this server.', 'platform_not_configured');
-  }
-  return { clientId, clientSecret };
-}
-
 function redirectUri(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  return `${base}/api/auth/x/callback`;
+  return assertOwnRedirectUri(byoRedirectUri('x'));
 }
 
 export interface PkcePair {
@@ -34,8 +27,11 @@ export function generatePkce(): PkcePair {
   return { verifier, challenge };
 }
 
-export function getXAuthUrl(workspaceId: string, challenge: string): { url: string; state: string } {
-  const { clientId } = getCredentials();
+export async function getXAuthUrl(
+  workspaceId: string,
+  challenge: string
+): Promise<{ url: string; state: string }> {
+  const { clientId } = await resolveOAuthApp(workspaceId, 'x');
   const state = createOAuthState(workspaceId);
   const params = new URLSearchParams({
     response_type: 'code',
@@ -66,7 +62,7 @@ export async function handleXCallback(
   codeVerifier: string,
   workspaceId: string
 ): Promise<ConnectionRow> {
-  const { clientId, clientSecret } = getCredentials();
+  const { clientId, clientSecret } = await resolveOAuthApp(workspaceId, 'x');
 
   let tokenResponse: Response;
   try {

@@ -6,14 +6,18 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from '@/app/components/Button';
 import { Modal } from '@/app/components/Modal';
 import { Textarea } from '@/app/components/Input';
+import { Badge } from '@/app/components/Badge';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
-import { stepTransition } from '@/app/components/motion';
+import { stepTransition, listItemTransition } from '@/app/components/motion';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { FeatureState } from '@/lib/system/doctor';
 import {
-  ConnectRedditPanel,
-  type RedditIntegrationStatus,
-} from '@/app/components/ConnectRedditPanel';
+  ConnectProviderPanel,
+  type ProviderIntegrationStatus,
+} from '@/app/components/ConnectProviderPanel';
+import { getProviderDescriptor } from '@/lib/integrations/registry';
+import type { IntegrationProvider } from '@/lib/integrations/types';
+import type { DiscoveryProviderStatus } from '@/lib/discovery/providers';
 
 interface MapCommunitiesResponse {
   communities: unknown[];
@@ -27,11 +31,17 @@ const MIN_LENGTH = 10;
 // router.refresh() so the Server Component re-reads the now-updated
 // discovery_communities table.
 //
-// Two steps, because the old single-step version showed an unactionable "the
-// operator must set REDDIT_CLIENT_ID" warning above a form that could not be
-// submitted. When Reddit is not connected the dialog now opens on the connect
-// step and advances to the ICP form by itself once it is.
-export function AddCommunitiesButton({ featureState }: { featureState: FeatureState }) {
+// Three steps, because discovery is no longer "Reddit or nothing". The dialog
+// opens on the platform picker: Mastodon and Hacker News are pre-selected and
+// need no setup, so a brand-new workspace can map communities immediately, and
+// the platforms that *do* need setup are an optional detour rather than a wall.
+export function AddCommunitiesButton({
+  featureState,
+  initialProviders,
+}: {
+  featureState: FeatureState;
+  initialProviders: DiscoveryProviderStatus[];
+}) {
   const router = useRouter();
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
@@ -41,31 +51,30 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
   const [targetAudience, setTargetAudience] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
-  const redditBlocked = featureState.blocker === 'reddit_missing';
-  const [reddit, setReddit] = useState<RedditIntegrationStatus>({
-    connected: !redditBlocked,
-    source: null,
-    clientIdHint: null,
-    verifiedAt: null,
-    lastError: null,
-  });
-  const [step, setStep] = useState<'connect' | 'describe'>(
-    redditBlocked ? 'connect' : 'describe'
+  const [providers, setProviders] = useState(initialProviders);
+  const [selected, setSelected] = useState<IntegrationProvider[]>(() =>
+    initialProviders.filter((p) => p.available).map((p) => p.provider)
   );
+  const [step, setStep] = useState<'pick' | 'connect' | 'describe'>('pick');
+  const [connecting, setConnecting] = useState<IntegrationProvider | null>(null);
 
-  // The server-rendered featureState is a snapshot; re-check on open so a
-  // connection made in another tab (or in Settings) is reflected immediately.
+  // The server-rendered snapshot can be stale: a credential added in another tab
+  // (or in Settings) should show up the moment the dialog opens.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    void fetchApi<RedditIntegrationStatus>('/v1/integrations/reddit')
-      .then((status) => {
+    void fetchApi<{ providers: DiscoveryProviderStatus[] }>('/v1/integrations')
+      .then((response) => {
         if (cancelled) return;
-        setReddit(status);
-        setStep(status.connected ? 'describe' : 'connect');
+        setProviders(response.providers);
+        setSelected((current) => {
+          const available = response.providers.filter((p) => p.available).map((p) => p.provider);
+          const kept = current.filter((provider) => available.includes(provider));
+          return kept.length > 0 ? kept : available;
+        });
       })
       .catch(() => {
-        /* Falls back to the server-rendered featureState — no need to shout. */
+        /* Falls back to the server-rendered snapshot — no need to shout. */
       });
     return () => {
       cancelled = true;
@@ -75,10 +84,28 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
   const creditsBlocked =
     featureState.state !== 'ready' && featureState.blocker === 'ai_credits_exhausted';
   const canSubmit =
-    reddit.connected &&
+    selected.length > 0 &&
     !creditsBlocked &&
     productDescription.trim().length >= MIN_LENGTH &&
     targetAudience.trim().length >= MIN_LENGTH;
+
+  function toggle(provider: IntegrationProvider) {
+    setSelected((current) =>
+      current.includes(provider)
+        ? current.filter((entry) => entry !== provider)
+        : [...current, provider]
+    );
+  }
+
+  async function refreshProviders() {
+    try {
+      const response = await fetchApi<{ providers: DiscoveryProviderStatus[] }>('/v1/integrations');
+      setProviders(response.providers);
+      return response.providers;
+    } catch {
+      return providers;
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,6 +118,7 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
         body: JSON.stringify({
           product_description: productDescription.trim(),
           target_audience: targetAudience.trim(),
+          platforms: selected,
         }),
       });
       setToast({
@@ -101,16 +129,28 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
             : `Found ${result.total} matching ${result.total === 1 ? 'community' : 'communities'}.`,
       });
       setOpen(false);
+      setStep('pick');
       setProductDescription('');
       setTargetAudience('');
       router.refresh();
     } catch (error) {
-      const message = errorMessage(error);
-      setFormError(message);
+      setFormError(errorMessage(error));
     } finally {
       setSubmitting(false);
     }
   }
+
+  const titles: Record<typeof step, string> = {
+    pick: 'Where should Prolora look?',
+    connect: connecting ? `Connect ${getProviderDescriptor(connecting).label}` : 'Connect platform',
+    describe: 'Map your ICP to communities',
+  };
+  const descriptions: Record<typeof step, string> = {
+    pick: 'Two platforms work right away. The others need a one-time setup.',
+    connect: 'One setup, then it stays connected.',
+    describe:
+      'Describe your product and audience — Prolora finds relevant communities and checks their posting rules.',
+  };
 
   return (
     <>
@@ -120,23 +160,32 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
         open={open}
         onClose={() => (submitting ? undefined : setOpen(false))}
         dismissible={!submitting}
-        size={step === 'connect' ? 'lg' : 'md'}
-        title={step === 'connect' ? 'Connect Reddit' : 'Map your ICP to communities'}
-        description={
-          step === 'connect'
-            ? 'Prolora reads Reddit with your own app key — one setup, then it stays connected.'
-            : 'Describe your product and audience — Prolora finds relevant communities and checks their posting rules.'
-        }
+        size={step === 'describe' ? 'md' : 'lg'}
+        title={titles[step]}
+        description={descriptions[step]}
         footer={
-          step === 'describe' ? (
+          step === 'pick' ? (
+            <>
+              <Button variant="secondary" type="button" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={selected.length === 0}
+                onClick={() => setStep('describe')}
+              >
+                Continue
+              </Button>
+            </>
+          ) : step === 'describe' ? (
             <>
               <Button
                 variant="secondary"
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={() => setStep('pick')}
                 disabled={submitting}
               >
-                Cancel
+                Back
               </Button>
               <Button
                 type="submit"
@@ -144,29 +193,66 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
                 loading={submitting}
                 disabled={!canSubmit || submitting}
               >
-                {submitting ? 'Searching Reddit…' : 'Find Communities'}
+                {submitting ? 'Searching…' : 'Find Communities'}
               </Button>
             </>
-          ) : undefined
+          ) : (
+            <Button variant="secondary" type="button" onClick={() => setStep('pick')}>
+              Back
+            </Button>
+          )
         }
       >
         <AnimatePresence mode="wait" initial={false}>
-          {step === 'connect' ? (
+          {step === 'pick' && (
+            <motion.div key="pick" {...stepTransition(reduced)} className="space-y-2.5">
+              {providers.map((provider, index) => (
+                <ProviderRow
+                  key={provider.provider}
+                  index={index}
+                  provider={provider}
+                  reduced={reduced}
+                  checked={selected.includes(provider.provider)}
+                  onToggle={() => toggle(provider.provider)}
+                  onSetup={() => {
+                    setConnecting(provider.provider);
+                    setStep('connect');
+                  }}
+                />
+              ))}
+            </motion.div>
+          )}
+
+          {step === 'connect' && connecting && (
             <motion.div key="connect" {...stepTransition(reduced)}>
-              <ConnectRedditPanel
-                status={reddit}
+              <ConnectProviderPanel
+                provider={connecting}
                 embedded
-                onConnected={(status) => {
-                  setReddit(status);
-                  if (status.connected) {
-                    setStep('describe');
-                    setToast({ variant: 'success', message: 'Reddit connected.' });
+                status={statusFor(providers, connecting)}
+                onConnected={(next) => {
+                  if (!next.connected) return;
+                  void refreshProviders().then((fresh) => {
+                    const nowAvailable = fresh.find(
+                      (entry) => entry.provider === connecting
+                    )?.available;
+                    if (nowAvailable) {
+                      setSelected((current) =>
+                        current.includes(connecting) ? current : [...current, connecting]
+                      );
+                    }
+                    setStep('pick');
+                    setToast({
+                      variant: 'success',
+                      message: `${getProviderDescriptor(connecting).label} connected.`,
+                    });
                     router.refresh();
-                  }
+                  });
                 }}
               />
             </motion.div>
-          ) : (
+          )}
+
+          {step === 'describe' && (
             <motion.div key="describe" {...stepTransition(reduced)}>
               <form id="add-communities-form" onSubmit={handleSubmit} className="space-y-4">
                 {creditsBlocked && (
@@ -175,6 +261,15 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
                     <p className="mt-1">{featureState.hint}</p>
                   </div>
                 )}
+
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                  <span>Searching:</span>
+                  {selected.map((provider) => (
+                    <Badge key={provider} tone={getProviderDescriptor(provider).tone}>
+                      {getProviderDescriptor(provider).label}
+                    </Badge>
+                  ))}
+                </div>
 
                 <Textarea
                   label="Product description"
@@ -201,11 +296,7 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
                   onChange={(event) => setTargetAudience(event.target.value)}
                   placeholder="Solo founders and small product teams running their own marketing…"
                   hint={
-                    <CharHint
-                      value={targetAudience}
-                      max={1000}
-                      label="Role, industry, pain point."
-                    />
+                    <CharHint value={targetAudience} max={1000} label="Role, industry, pain point." />
                   }
                 />
 
@@ -220,16 +311,6 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
                     </motion.p>
                   )}
                 </AnimatePresence>
-
-                {reddit.connected && reddit.source === 'workspace' && (
-                  <button
-                    type="button"
-                    onClick={() => setStep('connect')}
-                    className="text-xs text-gray-500 underline underline-offset-2 hover:text-gray-700"
-                  >
-                    Reddit connection settings
-                  </button>
-                )}
               </form>
             </motion.div>
           )}
@@ -238,6 +319,81 @@ export function AddCommunitiesButton({ featureState }: { featureState: FeatureSt
 
       {toast && <Toast {...toast} onDismiss={() => setToast(null)} />}
     </>
+  );
+}
+
+function statusFor(
+  providers: DiscoveryProviderStatus[],
+  provider: IntegrationProvider
+): ProviderIntegrationStatus {
+  const entry = providers.find((item) => item.provider === provider);
+  return {
+    connected: entry?.available ?? false,
+    source: null,
+    clientIdHint: null,
+    verifiedAt: null,
+    lastError: null,
+  };
+}
+
+function ProviderRow({
+  provider,
+  index,
+  reduced,
+  checked,
+  onToggle,
+  onSetup,
+}: {
+  provider: DiscoveryProviderStatus;
+  index: number;
+  reduced: boolean | null;
+  checked: boolean;
+  onToggle: () => void;
+  onSetup: () => void;
+}) {
+  const descriptor = getProviderDescriptor(provider.provider);
+
+  return (
+    <motion.div
+      {...listItemTransition(reduced, index)}
+      className={`rounded-lg border p-3.5 transition-colors ${
+        provider.available && checked
+          ? 'border-primary-600 bg-primary-50/40'
+          : 'border-gray-200 bg-white'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        {provider.available ? (
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={onToggle}
+            className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-600"
+            aria-label={`Search ${descriptor.label}`}
+          />
+        ) : (
+          <span className="mt-1 h-4 w-4 shrink-0 rounded border border-dashed border-gray-300" />
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-gray-900">{descriptor.label}</p>
+            {descriptor.credentialKind === 'none' && <Badge tone="green">No setup</Badge>}
+            {!provider.available && <Badge tone="amber">Setup required</Badge>}
+          </div>
+          <p className="mt-0.5 text-sm text-gray-500">{descriptor.summary}</p>
+          {descriptor.caveat && (
+            <p className="mt-1 text-xs text-gray-500">{descriptor.caveat}</p>
+          )}
+        </div>
+
+        {!provider.available && (
+          <Button variant="secondary" size="sm" type="button" onClick={onSetup}>
+            {provider.reason === 'connect_bluesky_first' ? 'How' : 'Set up'}
+          </Button>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
