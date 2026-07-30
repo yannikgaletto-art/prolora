@@ -110,6 +110,7 @@ export interface MediaRef {
 export interface PostItemRow {
   id: string;
   post_group_id: string;
+  content_item_variant_id: string | null;
   connection_id: string;
   platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram' | 'discord' | 'devto' | 'hashnode';
   adapted_content: string | null;
@@ -122,6 +123,9 @@ export interface PostItemRow {
   error_message: string | null;
   metrics: Record<string, unknown>;
   metrics_updated_at: string | null;
+  publish_claim_attempt_id: string | null;
+  publish_claimed_at: string | null;
+  publish_claim_lease_until: string | null;
   created_at: string;
 }
 

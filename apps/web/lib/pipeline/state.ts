@@ -23,6 +23,7 @@ export const CONTENT_ITEM_STATES = [
   'concepted',
   'drafted',
   'gated',
+  'awaiting_approval',
   'scheduled',
   'published',
   'measured',
@@ -132,7 +133,8 @@ export const CONTENT_ITEM_TRANSITION_COLUMNS =
 // --- Übergangsregeln ------------------------------------------------------
 
 /**
- * signal → angled → concepted → drafted → gated → scheduled → published → measured
+ * signal → angled → concepted → drafted → gated → awaiting_approval → scheduled
+ * → published → measured
  * plus `rejected` aus jedem NICHT-terminalen Zustand (§2).
  */
 export const ALLOWED_TRANSITIONS: Record<ContentItemState, ContentItemState[]> = {
@@ -142,7 +144,8 @@ export const ALLOWED_TRANSITIONS: Record<ContentItemState, ContentItemState[]> =
   // Ein durchgefallenes Gate wirft das Werkstück auf `drafted` zurück, damit
   // die Reparatur (remedy) greifen kann — es verschwindet nicht stillschweigend.
   drafted: ['gated', 'drafted', 'rejected'],
-  gated: ['scheduled', 'drafted', 'rejected'],
+  gated: ['awaiting_approval', 'scheduled', 'drafted', 'rejected'],
+  awaiting_approval: ['drafted', 'scheduled', 'rejected'],
   scheduled: ['published', 'drafted', 'rejected'],
   published: ['measured'],
   measured: [],
@@ -202,8 +205,9 @@ export function assertTransition(from: ContentItemState, intent: TransitionInten
 
 /**
  * Wie lange ein Item in einem Zwischenzustand stehen darf, bevor der Sweep es
- * als `stalled` markiert. Terminal- und Wartezustände (`scheduled` wartet auf
- * seinen Slot, `published` auf Metriken) haben bewusst kein Timeout.
+ * als `stalled` markiert. Terminal- und Wartezustände (`awaiting_approval`
+ * wartet auf Freigabe, `scheduled` auf seinen Slot, `published` auf Metriken)
+ * haben bewusst kein Timeout.
  */
 export const STATE_TIMEOUT_MINUTES: Partial<Record<ContentItemState, number>> = {
   signal: 60,
@@ -380,22 +384,39 @@ export interface TransitionPatch {
   scheduledAt?: string | null;
 }
 
-/**
- * Der einzige erlaubte Weg, `content_items.state` zu ändern. Schreibt IMMER
- * eine Protokollzeile — der Übergang und sein Protokoll sind dasselbe Ereignis.
- */
-export async function transitionContentItem(
+const ATOMIC_PATCH_METADATA_KEY = '__content_item_patch';
+
+function isMissingFunctionError(error: { code?: string | null; message?: string | null }): boolean {
+  return (
+    error.code === '42883' ||
+    error.code === 'PGRST202' ||
+    Boolean(
+      error.message &&
+        /(?:could not find|does not exist|schema cache).*(?:function|transition_content_item_atomic)/i.test(
+          error.message
+        )
+    )
+  );
+}
+
+function serializeTransitionPatch(patch: TransitionPatch): Record<string, unknown> {
+  const serialized: Record<string, unknown> = {};
+  if (patch.angle !== undefined) serialized.angle = patch.angle;
+  if (patch.concept !== undefined) serialized.concept = patch.concept;
+  if (patch.gateResult !== undefined) serialized.gate_result = patch.gateResult;
+  if (patch.mixBucket !== undefined) serialized.mix_bucket = patch.mixBucket;
+  if (patch.postGroupId !== undefined) serialized.post_group_id = patch.postGroupId;
+  if (patch.scheduledAt !== undefined) serialized.scheduled_at = patch.scheduledAt;
+  return serialized;
+}
+
+async function transitionContentItemLegacy(
   workspaceId: string,
   itemId: string,
+  current: ContentItemRow,
   intent: TransitionIntent,
-  patch: TransitionPatch = {}
+  patch: TransitionPatch
 ): Promise<ContentItemRow> {
-  const current = await getContentItem(workspaceId, itemId);
-  if (!current) {
-    throw new ApiError(404, 'Content item not found.', 'not_found');
-  }
-  assertTransition(current.state, intent);
-
   const update: Record<string, unknown> = {
     state: intent.to,
     state_entered_at: new Date().toISOString(),
@@ -415,8 +436,6 @@ export async function transitionContentItem(
     .update(update)
     .eq('workspace_id', workspaceId)
     .eq('id', itemId)
-    // Optimistisches Sperren: zwei parallele Läufe dürfen denselben Übergang
-    // nicht doppelt fahren.
     .eq('state', current.state)
     .select(CONTENT_ITEM_COLUMNS)
     .maybeSingle<ContentItemRow>();
@@ -439,6 +458,65 @@ export async function transitionContentItem(
   });
 
   return hydrateItem(data);
+}
+
+/**
+ * Der einzige erlaubte Weg, `content_items.state` zu ändern. Schreibt IMMER
+ * eine Protokollzeile in derselben DB-Transaktion. Der Legacy-Pfad bleibt nur
+ * für Deployments aktiv, deren PostgREST-Schema Migration 020 noch nicht kennt.
+ */
+export async function transitionContentItem(
+  workspaceId: string,
+  itemId: string,
+  intent: TransitionIntent,
+  patch: TransitionPatch = {}
+): Promise<ContentItemRow> {
+  const current = await getContentItem(workspaceId, itemId);
+  if (!current) {
+    throw new ApiError(404, 'Content item not found.', 'not_found');
+  }
+  assertTransition(current.state, intent);
+
+  const db = getServiceDb();
+  const serializedPatch = serializeTransitionPatch(patch);
+  const metadata =
+    Object.keys(serializedPatch).length > 0
+      ? {
+          ...(intent.metadata ?? {}),
+          [ATOMIC_PATCH_METADATA_KEY]: serializedPatch,
+        }
+      : (intent.metadata ?? {});
+  const { data, error } = await db.rpc('transition_content_item_atomic', {
+    p_workspace_id: workspaceId,
+    p_item_id: itemId,
+    p_expected_state: current.state,
+    p_to_state: intent.to,
+    p_reason: intent.reason,
+    p_actor: intent.actor,
+    p_actor_id: intent.actorId ?? null,
+    p_metadata: metadata,
+    p_scheduled_at: patch.scheduledAt ?? null,
+  });
+
+  if (error) {
+    if (isMissingFunctionError(error)) {
+      return transitionContentItemLegacy(workspaceId, itemId, current, intent, patch);
+    }
+    if (isMissingSchemaError(error.code)) throw MIGRATION_PENDING;
+    if (error.code === '40001') {
+      throw new ApiError(409, 'The item changed state concurrently — retry.', 'transition_conflict');
+    }
+    if (error.code === 'P0002') {
+      throw new ApiError(404, 'Content item not found.', 'not_found');
+    }
+    throw new Error(`[pipeline] transition failed: ${error.message}`);
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw new ApiError(409, 'The item changed state concurrently — retry.', 'transition_conflict');
+  }
+
+  return hydrateItem(row as ContentItemRow);
 }
 
 async function writeTransition(

@@ -68,6 +68,7 @@ export const STATE_TONES: Record<ContentItemState, BadgeTone> = {
   concepted: 'blue',
   drafted: 'amber',
   gated: 'teal',
+  awaiting_approval: 'amber',
   scheduled: 'amber',
   published: 'green',
   measured: 'green',

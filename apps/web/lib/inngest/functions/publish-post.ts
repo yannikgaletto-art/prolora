@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NonRetriableError } from 'inngest';
 import { inngest } from '../client';
 import { CONNECTION_ROW_COLUMNS, POST_ITEM_ROW_COLUMNS, getServiceDb, type ConnectionRow, type PostGroupRow, type PostItemRow, type MediaRef } from '@/lib/db';
@@ -6,6 +7,20 @@ import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type MediaAttachment, type RateLimitInfo } from '@/lib/adapters/types';
 import { prepareImageForPlatform, createSignedMediaUrl } from '@/lib/media/transform';
 
+const POST_GROUP_PUBLISH_COLUMNS = [
+  'id',
+  'workspace_id',
+  'original_content',
+  'media',
+  'scheduled_at',
+  'scheduled_tz',
+  'adapt_content',
+  'first_comment',
+  'content_source_id',
+  'created_at',
+  'created_via',
+].join(', ');
+
 interface PublishAttemptResult {
   outcome: 'published' | 'rate_limited' | 'failed';
   platformPostId?: string;
@@ -13,6 +28,81 @@ interface PublishAttemptResult {
   errorMessage?: string;
   retryAtIso?: string;
   rateLimit?: { remaining: number; limit: number; reset_at: string } | null;
+}
+
+interface ClaimPostItemInput {
+  workspaceId: string;
+  postItemId: string;
+  attemptId: string;
+  leaseUntil: string;
+}
+
+function isMissingClaimFunction(error: {
+  code?: string | null;
+  message?: string | null;
+}): boolean {
+  return (
+    error.code === '42883' ||
+    error.code === 'PGRST202' ||
+    Boolean(
+      error.message &&
+        /(?:could not find|does not exist|schema cache).*(?:function|claim_post_item)/i.test(
+          error.message
+        )
+    )
+  );
+}
+
+/**
+ * Returns true only for the transactionally locked winner. The compatibility
+ * path is intentionally limited to a missing Migration 020 RPC and still uses
+ * UPDATE ... RETURNING, so a concurrent loser cannot pass this boundary.
+ */
+export async function claimPostItemForPublishing(input: ClaimPostItemInput): Promise<boolean> {
+  const db = getServiceDb();
+  const { data, error } = await db.rpc('claim_post_item', {
+    p_workspace_id: input.workspaceId,
+    p_post_item_id: input.postItemId,
+    p_attempt_id: input.attemptId,
+    p_lease_until: input.leaseUntil,
+  });
+
+  if (!error) {
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (rows.length > 1) {
+      throw new Error('[publish-post] claim returned more than one winner');
+    }
+    return rows.length === 1;
+  }
+
+  if (!isMissingClaimFunction(error)) {
+    throw new Error(`[publish-post] atomic claim failed: ${error.message}`);
+  }
+
+  // Schema-drift compatibility only: prove workspace ownership before the
+  // legacy conditional write because post_items has no workspace_id column.
+  const { data: scopedItem, error: scopeError } = await db
+    .from('post_items')
+    .select('id, post_groups!inner(workspace_id)')
+    .eq('post_groups.workspace_id', input.workspaceId)
+    .eq('id', input.postItemId)
+    .maybeSingle<{ id: string }>();
+  if (scopeError) {
+    throw new Error(`[publish-post] legacy claim scope check failed: ${scopeError.message}`);
+  }
+  if (!scopedItem) return false;
+
+  const { data: claimed, error: legacyError } = await db
+    .from('post_items')
+    .update({ status: 'publishing' })
+    .eq('id', input.postItemId)
+    .in('status', ['queued', 'scheduled'])
+    .select('id')
+    .maybeSingle<{ id: string }>();
+  if (legacyError) {
+    throw new Error(`[publish-post] legacy claim failed: ${legacyError.message}`);
+  }
+  return Boolean(claimed);
 }
 
 export const publishPost = inngest.createFunction(
@@ -47,7 +137,8 @@ export const publishPost = inngest.createFunction(
 
       const { data: group, error: groupError } = await db
         .from('post_groups')
-        .select('*')
+        .select(POST_GROUP_PUBLISH_COLUMNS)
+        .eq('workspace_id', workspaceId)
         .eq('id', item.post_group_id)
         .single<PostGroupRow>();
       if (groupError || !group) {
@@ -67,21 +158,16 @@ export const publishPost = inngest.createFunction(
         throw new Error(`[publish-post] connection load failed: ${connError?.message ?? 'missing'}`);
       }
 
-      // Claim: status -> publishing + read-back (Double Assurance).
-      const { error: claimError } = await db
-        .from('post_items')
-        .update({ status: 'publishing' })
-        .eq('id', item.id)
-        .in('status', ['queued', 'scheduled']);
-      if (claimError) throw new Error(`[publish-post] claim failed: ${claimError.message}`);
-
-      const { data: claimed, error: verifyError } = await db
-        .from('post_items')
-        .select('status')
-        .eq('id', item.id)
-        .single<{ status: string }>();
-      if (verifyError || claimed?.status !== 'publishing') {
-        throw new Error('[publish-post] claim verification failed');
+      const attemptId = randomUUID();
+      const leaseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const claimed = await claimPostItemForPublishing({
+        workspaceId,
+        postItemId: item.id,
+        attemptId,
+        leaseUntil,
+      });
+      if (!claimed) {
+        return { skip: true as const, reason: 'item is already claimed by another publish attempt' };
       }
 
       // Rate-limit budget from the last API call (Invariante 5): if
