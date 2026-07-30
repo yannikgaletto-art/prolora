@@ -48,20 +48,17 @@ describe('content DNA confidence', () => {
 
 describe('deterministic content DNA extraction', () => {
   test('derives transparent structural and voice features', () => {
-    const result = analyzeContentDna([
-      golden(
-        [
-          'I build products. I learn fast!',
-          '',
-          '- Try this',
-          '- Ship today',
-          '',
-          'What will you build?',
-          '',
-          'Join the waitlist.',
-        ].join('\n')
-      ),
-    ]);
+    const content = [
+      'I build products. I learn fast!',
+      '',
+      '- Try this',
+      '- Ship today',
+      '',
+      'What will you build?',
+      '',
+      'Join the waitlist.',
+    ].join('\n');
+    const result = analyzeContentDna(Array.from({ length: 3 }, () => golden(content)));
 
     expect(result.profile.medianSentenceLength).toBe(3);
     expect(result.profile.medianParagraphLength).toBe(4);
@@ -90,6 +87,35 @@ describe('deterministic content DNA extraction', () => {
     });
     expect(result.confidence.overall).toBe('low');
     expect(result.promptRules).toEqual([]);
+  });
+
+  test('keeps the profile neutral with one or two Golden Samples', () => {
+    const locked: DnaLockedRule = {
+      key: 'sentence_length',
+      instruction: 'Keep sentences short.',
+      locked: true,
+    };
+    const result = analyzeContentDna(
+      [
+        golden('I use a highly distinctive opening and an unusually long sentence here.'),
+        golden('Why would two examples be enough to claim a precise style?'),
+      ],
+      [locked]
+    );
+
+    expect(result.profile).toEqual({
+      medianSentenceLength: 0,
+      medianParagraphLength: 0,
+      firstPersonRate: 0,
+      questionRate: 0,
+      exclamationRate: 0,
+      listUsage: 0,
+      ctaPresence: 0,
+      commonOpeningShapes: [],
+      preferredWhitespaceDensity: 0,
+    });
+    expect(result.confidence.overall).toBe('low');
+    expect(result.promptRules).toEqual([locked]);
   });
 
   test('preserves locked user rules and lets them replace a derived rule', () => {
@@ -155,18 +181,52 @@ describe('migration 021 content DNA contract', () => {
     );
   });
 
-  test('enforces workspace RLS for reads and writes on both tables', () => {
+  test('keeps direct RLS access read-only and all writes behind service-role RPCs', () => {
     expect(migration).toMatch(/ALTER TABLE content_samples ENABLE ROW LEVEL SECURITY/);
-    expect(migration).toMatch(/CREATE POLICY "content_samples_workspace"[\s\S]*?USING \(workspace_id IN \(SELECT public\.user_workspace_ids\(\)\)\)[\s\S]*?WITH CHECK \(workspace_id IN \(SELECT public\.user_workspace_ids\(\)\)\)/);
+    expect(migration).toMatch(
+      /CREATE POLICY "content_samples_workspace_read"[\s\S]*?FOR SELECT[\s\S]*?user_workspace_ids\(\)/
+    );
+    expect(migration).not.toMatch(/CREATE POLICY "content_samples_workspace_write"/);
 
     expect(migration).toMatch(/ALTER TABLE content_dna_profiles ENABLE ROW LEVEL SECURITY/);
-    for (const operation of ['read', 'insert', 'update']) {
+    expect(migration).toMatch(
+      /CREATE POLICY "content_dna_profiles_workspace_read"[\s\S]*?user_workspace_ids\(\)/
+    );
+    expect(migration).not.toMatch(/CREATE POLICY "content_dna_profiles_workspace_insert"/);
+    expect(migration).not.toMatch(/CREATE POLICY "content_dna_profiles_workspace_update"/);
+  });
+
+  test('serializes sample mutations and profile replacement through service-role-only RPCs', () => {
+    for (const functionName of [
+      'create_content_sample_atomic',
+      'update_content_sample_atomic',
+      'delete_content_sample_atomic',
+      'rebuild_content_dna_atomic',
+    ]) {
+      const body = migration.match(
+        new RegExp(`CREATE OR REPLACE FUNCTION ${functionName}[\\s\\S]*?\\$\\$;`)
+      )?.[0];
+      expect(body).toBeDefined();
+      expect(body).toMatch(/SECURITY DEFINER/);
+      expect(body).toMatch(/SET search_path\s*=\s*public/);
+      expect(body).toMatch(/pg_advisory_xact_lock/);
+      expect(body).toMatch(/workspace_id/);
       expect(migration).toMatch(
-        new RegExp(
-          `CREATE POLICY "content_dna_profiles_workspace_${operation}"[\\s\\S]*?user_workspace_ids\\(\\)`
-        )
+        new RegExp(`REVOKE ALL ON FUNCTION ${functionName}[\\s\\S]*?authenticated`)
+      );
+      expect(migration).toMatch(
+        new RegExp(`GRANT EXECUTE ON FUNCTION ${functionName}[\\s\\S]*?service_role`)
       );
     }
-    expect(migration).not.toMatch(/CREATE POLICY "content_dna_profiles_workspace_delete"/);
+
+    const rebuild = migration.match(
+      /CREATE OR REPLACE FUNCTION rebuild_content_dna_atomic[\s\S]*?\$\$;/
+    )?.[0];
+    expect(rebuild).toMatch(/content_sample_set_changed/);
+    expect(rebuild).toMatch(/MAX\(dna\.version\)/);
+    expect(rebuild).toMatch(/status = 'superseded'/);
+    expect(rebuild).toMatch(/status = 'active'/);
+    expect(rebuild).toMatch(/IF NOT FOUND[\s\S]*?content_dna_activation_failed/);
+    expect(migration).toMatch(/prompt_rules JSONB NOT NULL/);
   });
 });

@@ -72,6 +72,7 @@ export interface ContentDnaProfileRow {
   schema_version: string;
   profile: ContentDnaProfile;
   confidence: ContentDnaConfidence;
+  prompt_rules: DnaPromptRule[];
   locked_rules: DnaLockedRule[];
   sample_count: number;
   model: string;
@@ -133,6 +134,7 @@ export const CONTENT_DNA_PROFILE_ROW_COLUMNS = [
   'schema_version',
   'profile',
   'confidence',
+  'prompt_rules',
   'locked_rules',
   'sample_count',
   'model',

@@ -191,7 +191,7 @@ export function analyzeContentDna(
     ) as ContentDnaAnalysis['confidence']['features'],
   };
 
-  if (sampleCount === 0) {
+  if (sampleCount <= 2) {
     return {
       profile: { ...NEUTRAL_PROFILE, commonOpeningShapes: [] },
       confidence,

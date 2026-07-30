@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { platformTypeSchema } from '@prolora/shared';
 import { z } from 'zod';
-import { getWorkspaceId } from '@/lib/api/auth-middleware';
-import { handleRouteError, jsonError } from '@/lib/api/http';
+import { authenticate, getWorkspaceId } from '@/lib/api/auth-middleware';
+import { ApiError, handleRouteError, jsonError } from '@/lib/api/http';
 import { createContentSample, listContentSamples } from '@/lib/writer/samples';
 
 const createSampleSchema = z.object({
@@ -14,6 +14,18 @@ const createSampleSchema = z.object({
   source_url: z.string().url().optional(),
   label: z.string().trim().max(120).optional(),
 });
+
+async function getMutationWorkspaceId(req: NextRequest): Promise<string> {
+  const auth = await authenticate(req);
+  if (auth.method !== 'session' || auth.workspaceRole !== 'admin') {
+    throw new ApiError(
+      403,
+      'Only workspace owners and admins can manage Content DNA samples.',
+      'forbidden'
+    );
+  }
+  return auth.workspaceId;
+}
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -27,7 +39,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const workspaceId = await getWorkspaceId(req);
+    const workspaceId = await getMutationWorkspaceId(req);
     const body: unknown = await req.json().catch(() => null);
     if (body === null) {
       return jsonError(400, 'Request body must be valid JSON.', 'invalid_request');

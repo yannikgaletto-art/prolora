@@ -8,6 +8,8 @@ interface DbResult {
 
 const mocks = vi.hoisted(() => ({
   getWorkspaceId: vi.fn(),
+  authenticate: vi.fn(),
+  rpc: vi.fn(),
   from: vi.fn(),
   results: [] as DbResult[],
   chains: [] as Array<Record<string, ReturnType<typeof vi.fn>>>,
@@ -35,12 +37,16 @@ function queryChain(result: DbResult) {
   return Object.assign(promise, chain);
 }
 
-vi.mock('@/lib/api/auth-middleware', () => ({ getWorkspaceId: mocks.getWorkspaceId }));
+vi.mock('@/lib/api/auth-middleware', () => ({
+  getWorkspaceId: mocks.getWorkspaceId,
+  authenticate: mocks.authenticate,
+}));
 vi.mock('@/lib/db', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/db')>();
   return {
     ...original,
     getServiceDb: () => ({
+      rpc: mocks.rpc,
       from: (table: string) => {
         mocks.from(table);
         const chain = queryChain(mocks.results.shift() ?? {});
@@ -74,6 +80,9 @@ const activeProfile = {
   },
   confidence: { overall: 'low', features: {} },
   locked_rules: [
+    { key: 'sentence_length', instruction: 'Keep sentences concise.', locked: true },
+  ],
+  prompt_rules: [
     { key: 'sentence_length', instruction: 'Keep sentences concise.', locked: true },
   ],
   sample_count: 2,
@@ -110,6 +119,13 @@ describe('Writer DNA routes', () => {
     mocks.results.length = 0;
     mocks.chains.length = 0;
     mocks.getWorkspaceId.mockResolvedValue('workspace-authenticated');
+    mocks.authenticate.mockResolvedValue({
+      workspaceId: 'workspace-authenticated',
+      method: 'session',
+      userId: 'admin-1',
+      workspaceRole: 'admin',
+    });
+    mocks.rpc.mockReset();
   });
 
   test('returns an honest low-confidence fallback before the first profile exists', async () => {
@@ -143,63 +159,50 @@ describe('Writer DNA routes', () => {
       sample_set_hash: 'c'.repeat(64),
     };
     const activatedProfile = { ...buildingProfile, status: 'active' };
-    mocks.results.push(
-      { data: samples },
-      { data: { version: 1 } },
-      { data: activeProfile },
-      { data: buildingProfile },
-      { data: buildingProfile },
-      { data: [{ id: activeProfile.id }] },
-      { data: activatedProfile }
-    );
+    mocks.results.push({ data: samples }, { data: activeProfile });
+    mocks.rpc.mockResolvedValue({ data: [activatedProfile], error: null });
 
     const response = await POST(request('/api/v1/writer/dna/rebuild', 'POST'));
 
     expect(response.status).toBe(201);
-    expect(mocks.chains[3].insert).toHaveBeenCalledWith(
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'rebuild_content_dna_atomic',
       expect.objectContaining({
-        workspace_id: 'workspace-authenticated',
-        version: 2,
-        status: 'building',
-        locked_rules: activeProfile.locked_rules,
-        model: 'deterministic-v1',
-        prompt_version: 'writer-dna-v1',
+        p_workspace_id: 'workspace-authenticated',
+        p_locked_rules: activeProfile.locked_rules,
+        p_prompt_rules: expect.arrayContaining(activeProfile.locked_rules),
+        p_sample_set_members: ['golden:' + 'b'.repeat(64)],
       })
     );
-    expect(mocks.chains[4].eq).toHaveBeenCalledWith('status', 'building');
-    expect(mocks.chains[5].update).toHaveBeenCalledWith({ status: 'superseded' });
-    expect(mocks.chains[6].update).toHaveBeenCalledWith({ status: 'active' });
     await expect(response.json()).resolves.toMatchObject({
-      dna_profile: { version: 2, status: 'active' },
+      dna_profile: {
+        version: 2,
+        status: 'active',
+        prompt_rules: activeProfile.prompt_rules,
+      },
     });
   });
 
-  test('does not supersede the active profile if building read-back fails', async () => {
-    const buildingProfile = {
-      ...activeProfile,
-      id: '33333333-3333-4333-8333-333333333333',
-      version: 2,
-      status: 'building',
-    };
-    mocks.results.push(
-      { data: samples },
-      { data: { version: 1 } },
-      { data: activeProfile },
-      { data: buildingProfile },
-      { data: null }
-    );
+  test('reports a sample-set race without leaving application-side lifecycle writes', async () => {
+    mocks.results.push({ data: samples }, { data: activeProfile });
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '40001', message: 'content_sample_set_changed' },
+    });
 
     const response = await POST(request('/api/v1/writer/dna/rebuild', 'POST'));
 
-    expect(response.status).toBe(500);
-    expect(mocks.chains).toHaveLength(5);
+    expect(response.status).toBe(409);
+    expect(mocks.chains).toHaveLength(2);
   });
 
   test('returns the exact migration_pending 503 during rebuild', async () => {
-    mocks.results.push({
+    mocks.results.push({ data: samples }, { data: activeProfile });
+    mocks.rpc.mockResolvedValue({
+      data: null,
       error: {
-        code: '42P01',
-        message: 'relation "content_samples" does not exist',
+        code: 'PGRST202',
+        message: 'Could not find the function public.rebuild_content_dna_atomic',
       },
     });
 
@@ -211,5 +214,22 @@ describe('Writer DNA routes', () => {
         'Content DNA storage is not set up yet — apply supabase/migrations/021_content_dna.sql.',
       code: 'migration_pending',
     });
+  });
+
+  test.each([
+    { method: 'session', workspaceRole: 'member', userId: 'member-1' },
+    { method: 'session', workspaceRole: 'viewer', userId: 'viewer-1' },
+    { method: 'api_key', apiKeyId: 'key-1' },
+  ])('rejects DNA rebuild by $method/$workspaceRole', async (auth) => {
+    mocks.authenticate.mockResolvedValue({
+      workspaceId: 'workspace-authenticated',
+      ...auth,
+    });
+
+    const response = await POST(request('/api/v1/writer/dna/rebuild', 'POST'));
+
+    expect(response.status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 });

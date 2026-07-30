@@ -98,28 +98,44 @@ function throwStorageError(context: string, error: { code?: string | null; messa
   throw new Error(`[writer] ${context}: ${error.message}`);
 }
 
-async function activeSampleCount(workspaceId: string): Promise<number> {
-  const db = getServiceDb();
-  const { count, error } = await db
-    .from('content_samples')
-    .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId)
-    .eq('active', true);
-  if (error) throwStorageError('active sample count failed', error);
-  if (count === null) {
-    throw new Error('[writer] active sample capacity is unknown');
-  }
-  return count;
+function isMissingNamedRpc(
+  error: { code?: string | null; message: string },
+  rpcName: string
+): boolean {
+  return (
+    error.message.includes(rpcName) &&
+    ((error.code === 'PGRST202' && /could not find/i.test(error.message)) ||
+      (error.code === '42883' && /does not exist/i.test(error.message)))
+  );
 }
 
-async function assertActiveSampleCapacity(workspaceId: string): Promise<void> {
-  if ((await activeSampleCount(workspaceId)) >= MAX_ACTIVE_CONTENT_SAMPLES) {
+function throwRpcError(
+  context: string,
+  rpcName: string,
+  error: { code?: string | null; message: string }
+): never {
+  if (isMissingNamedRpc(error, rpcName)) throw CONTENT_DNA_MIGRATION_PENDING;
+  if (error.code === 'P0001' && error.message.includes('content_sample_limit_reached')) {
     throw new ApiError(
       409,
       `A workspace can have at most ${MAX_ACTIVE_CONTENT_SAMPLES} active Content DNA samples.`,
       'sample_limit_reached'
     );
   }
+  if (error.code === '40001' && error.message.includes('content_sample_set_changed')) {
+    throw new ApiError(
+      409,
+      'Content DNA samples changed during rebuild. Retry with the current sample set.',
+      'sample_set_changed'
+    );
+  }
+  throwStorageError(context, error);
+}
+
+function singleRpcRow<T>(data: unknown): T | null {
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  if (rows.length > 1) throw new Error('[writer] atomic RPC returned more than one row');
+  return (rows[0] as T | undefined) ?? null;
 }
 
 async function assertSourcePostOwnership(
@@ -141,21 +157,6 @@ async function assertSourcePostOwnership(
       'invalid_source_post'
     );
   }
-}
-
-async function loadSampleRow(
-  workspaceId: string,
-  sampleId: string
-): Promise<ContentSampleRow | null> {
-  const db = getServiceDb();
-  const { data, error } = await db
-    .from('content_samples')
-    .select(CONTENT_SAMPLE_SAFE_COLUMNS)
-    .eq('workspace_id', workspaceId)
-    .eq('id', sampleId)
-    .maybeSingle<ContentSampleRow>();
-  if (error) throwStorageError('sample lookup failed', error);
-  return data;
 }
 
 async function loadActiveSampleRows(workspaceId: string): Promise<ContentSampleRow[]> {
@@ -190,26 +191,22 @@ export async function createContentSample(
   if (input.source_post_item_id) {
     await assertSourcePostOwnership(workspaceId, input.source_post_item_id);
   }
-  await assertActiveSampleCapacity(workspaceId);
   const content = normalizeSampleContent(input.content);
   const db = getServiceDb();
-  const { data, error } = await db
-    .from('content_samples')
-    .insert({
-      workspace_id: workspaceId,
-      kind: input.kind,
-      origin: input.origin,
-      platform: input.platform ?? null,
-      content,
-      source_post_item_id: input.source_post_item_id ?? null,
-      source_url: input.source_url ?? null,
-      label: input.label ?? null,
-      active: true,
-      content_hash: sha256Hex(content),
-    })
-    .select(CONTENT_SAMPLE_SAFE_COLUMNS)
-    .single<ContentSampleRow>();
-  if (error || !data) {
+  const rpcName = 'create_content_sample_atomic';
+  const { data, error } = await db.rpc(rpcName, {
+    p_workspace_id: workspaceId,
+    p_kind: input.kind,
+    p_origin: input.origin,
+    p_platform: input.platform ?? null,
+    p_content: content,
+    p_source_post_item_id: input.source_post_item_id ?? null,
+    p_source_url: input.source_url ?? null,
+    p_label: input.label ?? null,
+    p_content_hash: sha256Hex(content),
+  });
+  const row = singleRpcRow<ContentSampleRow>(data);
+  if (error || !row) {
     if (error?.code === '23505') {
       throw new ApiError(
         409,
@@ -217,10 +214,10 @@ export async function createContentSample(
         'duplicate_sample'
       );
     }
-    if (error) throwStorageError('sample insert failed', error);
+    if (error) throwRpcError('sample insert failed', rpcName, error);
     throw new Error('[writer] sample insert returned no row');
   }
-  return sampleDto(data);
+  return sampleDto(row);
 }
 
 export async function updateContentSample(
@@ -228,26 +225,19 @@ export async function updateContentSample(
   sampleId: string,
   input: UpdateContentSampleInput
 ): Promise<ContentSampleDto | null> {
-  const current = await loadSampleRow(workspaceId, sampleId);
-  if (!current) return null;
-  if (input.active === true && !current.active) {
-    await assertActiveSampleCapacity(workspaceId);
-  }
-
-  const update: { active?: boolean; label?: string | null } = {};
-  if (input.active !== undefined) update.active = input.active;
-  if (input.label !== undefined) update.label = input.label;
-
   const db = getServiceDb();
-  const { data, error } = await db
-    .from('content_samples')
-    .update(update)
-    .eq('workspace_id', workspaceId)
-    .eq('id', sampleId)
-    .select(CONTENT_SAMPLE_SAFE_COLUMNS)
-    .maybeSingle<ContentSampleRow>();
-  if (error) throwStorageError('sample update failed', error);
-  return data ? sampleDto(data) : null;
+  const rpcName = 'update_content_sample_atomic';
+  const { data, error } = await db.rpc(rpcName, {
+    p_workspace_id: workspaceId,
+    p_sample_id: sampleId,
+    p_set_active: input.active !== undefined,
+    p_active: input.active ?? null,
+    p_set_label: input.label !== undefined,
+    p_label: input.label ?? null,
+  });
+  if (error) throwRpcError('sample update failed', rpcName, error);
+  const row = singleRpcRow<ContentSampleRow>(data);
+  return row ? sampleDto(row) : null;
 }
 
 export async function deleteContentSample(
@@ -255,14 +245,13 @@ export async function deleteContentSample(
   sampleId: string
 ): Promise<boolean> {
   const db = getServiceDb();
-  const { data, error } = await db
-    .from('content_samples')
-    .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('id', sampleId)
-    .select('id');
-  if (error) throwStorageError('sample delete failed', error);
-  return (data ?? []).length === 1;
+  const rpcName = 'delete_content_sample_atomic';
+  const { data, error } = await db.rpc(rpcName, {
+    p_workspace_id: workspaceId,
+    p_sample_id: sampleId,
+  });
+  if (error) throwRpcError('sample delete failed', rpcName, error);
+  return data === sampleId;
 }
 
 async function activeProfileRow(workspaceId: string): Promise<ContentDnaProfileRow | null> {
@@ -298,22 +287,8 @@ export async function getContentDna(
   };
 }
 
-async function latestProfileVersion(workspaceId: string): Promise<number> {
-  const db = getServiceDb();
-  const { data, error } = await db
-    .from('content_dna_profiles')
-    .select('version')
-    .eq('workspace_id', workspaceId)
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle<Pick<ContentDnaProfileRow, 'version'>>();
-  if (error) throwStorageError('DNA profile version lookup failed', error);
-  return data?.version ?? 0;
-}
-
 export async function rebuildContentDna(workspaceId: string): Promise<ContentDnaProfileDto> {
   const samples = await loadActiveSampleRows(workspaceId);
-  const nextVersion = (await latestProfileVersion(workspaceId)) + 1;
   const currentActive = await activeProfileRow(workspaceId);
   const lockedRules: DnaLockedRule[] = currentActive?.locked_rules ?? [];
   const analysis = analyzeContentDna(
@@ -330,68 +305,28 @@ export async function rebuildContentDna(workspaceId: string): Promise<ContentDna
       contentHash: sample.content_hash,
     }))
   );
+  const sampleSetMembers = samples
+    .map((sample) => `${sample.kind}:${sample.content_hash}`)
+    .sort();
   const db = getServiceDb();
-  const { data: inserted, error: insertError } = await db
-    .from('content_dna_profiles')
-    .insert({
-      workspace_id: workspaceId,
-      version: nextVersion,
-      status: 'building',
-      sample_set_hash: sampleSetHash,
-      schema_version: 'content-dna-v1',
-      profile: analysis.profile,
-      confidence: analysis.confidence,
-      locked_rules: lockedRules,
-      sample_count: analysis.sampleCount,
-      model: 'deterministic-v1',
-      prompt_version: 'writer-dna-v1',
-    })
-    .select(CONTENT_DNA_PROFILE_ROW_COLUMNS)
-    .single<ContentDnaProfileRow>();
-  if (insertError || !inserted) {
-    if (insertError) throwStorageError('DNA building profile insert failed', insertError);
-    throw new Error('[writer] DNA building profile insert returned no row');
-  }
-
-  // The former active profile remains untouched until the new immutable
-  // payload has been read back through the exact workspace/status fence.
-  const { data: verifiedBuilding, error: verifyError } = await db
-    .from('content_dna_profiles')
-    .select(CONTENT_DNA_PROFILE_ROW_COLUMNS)
-    .eq('workspace_id', workspaceId)
-    .eq('id', inserted.id)
-    .eq('status', 'building')
-    .maybeSingle<ContentDnaProfileRow>();
-  if (verifyError) throwStorageError('DNA building profile read-back failed', verifyError);
-  if (!verifiedBuilding || verifiedBuilding.version !== nextVersion) {
-    throw new Error('[writer] DNA building profile read-back verification failed');
-  }
-
-  if (currentActive) {
-    const { data: superseded, error: supersedeError } = await db
-      .from('content_dna_profiles')
-      .update({ status: 'superseded' })
-      .eq('workspace_id', workspaceId)
-      .eq('id', currentActive.id)
-      .eq('status', 'active')
-      .select('id');
-    if (supersedeError) throwStorageError('active DNA profile supersede failed', supersedeError);
-    if ((superseded ?? []).length !== 1) {
-      throw new Error('[writer] active DNA profile supersede fence was lost');
-    }
-  }
-
-  const { data: activated, error: activateError } = await db
-    .from('content_dna_profiles')
-    .update({ status: 'active' })
-    .eq('workspace_id', workspaceId)
-    .eq('id', inserted.id)
-    .eq('status', 'building')
-    .select(CONTENT_DNA_PROFILE_ROW_COLUMNS)
-    .maybeSingle<ContentDnaProfileRow>();
-  if (activateError) throwStorageError('DNA profile activation failed', activateError);
-  if (!activated || activated.version !== nextVersion || activated.status !== 'active') {
-    throw new Error('[writer] DNA profile activation verification failed');
+  const rpcName = 'rebuild_content_dna_atomic';
+  const { data, error } = await db.rpc(rpcName, {
+    p_workspace_id: workspaceId,
+    p_sample_set_members: sampleSetMembers,
+    p_sample_set_hash: sampleSetHash,
+    p_schema_version: 'content-dna-v1',
+    p_profile: analysis.profile,
+    p_confidence: analysis.confidence,
+    p_prompt_rules: analysis.promptRules,
+    p_locked_rules: lockedRules,
+    p_sample_count: analysis.sampleCount,
+    p_model: 'deterministic-v1',
+    p_prompt_version: 'writer-dna-v1',
+  });
+  if (error) throwRpcError('DNA profile rebuild failed', rpcName, error);
+  const activated = singleRpcRow<ContentDnaProfileRow>(data);
+  if (!activated || activated.status !== 'active') {
+    throw new Error('[writer] DNA profile rebuild returned no active row');
   }
   return profileDto(activated);
 }
