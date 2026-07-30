@@ -18,6 +18,10 @@ apps/mcp-server/dist/
 .vercel
 supabase/.temp/
 
+# Local agent workspaces and brainstorming previews
+.worktrees/
+.superpowers/
+
 # Logs & OS noise
 *.log
 .DS_Store
