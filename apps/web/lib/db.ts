@@ -117,7 +117,15 @@ export interface PostItemRow {
   adapted_content: string | null;
   resolved_content: string | null;
   media: MediaRef[];
-  status: 'draft' | 'queued' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'deleted';
+  status:
+    | 'draft'
+    | 'queued'
+    | 'scheduled'
+    | 'publishing'
+    | 'published'
+    | 'failed'
+    | 'reconciliation_required'
+    | 'deleted';
   platform_post_id: string | null;
   platform_url: string | null;
   published_at: string | null;

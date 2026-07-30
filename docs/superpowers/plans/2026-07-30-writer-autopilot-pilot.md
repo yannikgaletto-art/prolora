@@ -114,14 +114,6 @@ transition_content_item_atomic(
 ```
 
 ```sql
-materialize_writer_bundle(
-  p_workspace_id UUID,
-  p_review_id UUID,
-  p_snapshot_hash TEXT
-)
-```
-
-```sql
 claim_post_item(
   p_workspace_id UUID,
   p_post_item_id UUID,
@@ -295,7 +287,15 @@ Verify default `enabled=false`, mode fixed to `approval_required`, deterministic
 
 - [ ] **Step 2: Add migration 022**
 
-Create `workspace_writer_policies` and `writer_review_bundles` with RLS, one pending bundle per item, immutable snapshot checks and indexes for status/expiry.
+Create `workspace_writer_policies` and `writer_review_bundles` with RLS, one pending bundle per item, immutable snapshot checks and indexes for status/expiry. After those review tables exist, define the approval transaction boundary in this migration:
+
+```sql
+materialize_writer_bundle(
+  p_workspace_id UUID,
+  p_review_id UUID,
+  p_snapshot_hash TEXT
+)
+```
 
 - [ ] **Step 3: Implement policy service**
 

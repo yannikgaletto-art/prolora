@@ -5,6 +5,12 @@ import { describe, expect, test } from 'vitest';
 import { rollupGroupStatus, validateCalendarRange, MAX_RANGE_DAYS } from '@/lib/posts/calendar';
 
 describe('rollupGroupStatus', () => {
+  test('operator reconciliation is the highest visible attention state', () => {
+    expect(
+      rollupGroupStatus(['published', 'failed', 'reconciliation_required'])
+    ).toBe('reconciliation_required');
+  });
+
   test('failed wins over everything', () => {
     expect(rollupGroupStatus(['published', 'failed', 'scheduled'])).toBe('failed');
   });

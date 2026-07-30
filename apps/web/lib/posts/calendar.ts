@@ -11,6 +11,7 @@ export const MAX_RANGE_DAYS = 62;
 export const MAX_CALENDAR_GROUPS = 500;
 
 export type CalendarGroupStatus =
+  | 'reconciliation_required'
   | 'failed'
   | 'publishing'
   | 'queued'
@@ -50,6 +51,7 @@ export interface CalendarResponse {
 
 // Precedence: something needing attention wins over everything routine.
 const STATUS_PRECEDENCE: CalendarGroupStatus[] = [
+  'reconciliation_required',
   'failed',
   'publishing',
   'queued',

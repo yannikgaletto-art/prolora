@@ -240,6 +240,13 @@ describe('migration 020 writer integrity contract', () => {
     resolve(process.cwd(), '../../supabase/migrations/020_writer_integrity.sql'),
     'utf8'
   );
+  const implementationPlan = readFileSync(
+    resolve(
+      process.cwd(),
+      '../../docs/superpowers/plans/2026-07-30-writer-autopilot-pilot.md'
+    ),
+    'utf8'
+  );
 
   test('extends state and links one writer variant to at most one post item', () => {
     expect(migration).toMatch(/awaiting_approval/);
@@ -318,6 +325,32 @@ describe('migration 020 writer integrity contract', () => {
     expect(finalizeFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
     expect(finalizeFunction).toMatch(/publish_claim_attempt_id\s*=\s*p_attempt_id/);
     expect(finalizeFunction).toMatch(/status\s*=\s*'publishing'/);
+  });
+
+  test('makes ambiguous outcomes visible and recoverable without database repair', () => {
+    expect(migration).toMatch(/reconciliation_required/);
+    const releaseFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION release_post_item_claim_for_retry[\s\S]*?\$\$;/
+    )?.[0];
+    const resolveFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION resolve_post_item_reconciliation[\s\S]*?\$\$;/
+    )?.[0];
+
+    expect(releaseFunction).toBeDefined();
+    expect(releaseFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
+    expect(releaseFunction).toMatch(/publish_claim_attempt_id\s*=\s*p_attempt_id/);
+    expect(resolveFunction).toBeDefined();
+    expect(resolveFunction).toMatch(/reconciliation_required/);
+    expect(resolveFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
+  });
+
+  test('assigns materialize_writer_bundle to Task 4 migration 022, not Task 1', () => {
+    const task1 = implementationPlan.match(/## Task 1:[\s\S]*?(?=## Task 2:)/)?.[0] ?? '';
+    const task4 = implementationPlan.match(/## Task 4:[\s\S]*?(?=## Task 5:)/)?.[0] ?? '';
+
+    expect(task1).not.toMatch(/materialize_writer_bundle/);
+    expect(task4).toMatch(/materialize_writer_bundle/);
+    expect(task4).toMatch(/migration 022/i);
   });
 
   test('does not define writer bundle materialization before writer tables exist', () => {

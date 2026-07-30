@@ -24,8 +24,11 @@ vi.mock('@/lib/inngest/client', () => ({
 
 import {
   claimPostItemForPublishing,
+  createPostItemClaim,
   executeClaimedPostItem,
   finalizePostItemClaim,
+  publishRecoveryDecision,
+  releasePostItemClaimForRetry,
 } from '@/lib/inngest/functions/publish-post';
 
 describe('atomic post item claim', () => {
@@ -218,6 +221,75 @@ describe('atomic post item claim', () => {
     ).resolves.toBe(false);
   });
 
+  test('computes the claim lease at execution time after a long rate-limit sleep', () => {
+    const beforeSleep = new Date('2026-07-30T10:00:00.000Z');
+    const afterSleep = new Date('2026-07-31T18:00:00.000Z');
+
+    const claim = createPostItemClaim('workspace-1', 'post-1', afterSleep);
+
+    expect(new Date(claim.leaseUntil).getTime()).toBe(
+      afterSleep.getTime() + 24 * 60 * 60 * 1000
+    );
+    expect(new Date(claim.leaseUntil).getTime()).toBeGreaterThan(
+      beforeSleep.getTime() + 24 * 60 * 60 * 1000
+    );
+  });
+
+  test('turns rate limits into a safe fresh-attempt retry decision', () => {
+    expect(
+      publishRecoveryDecision(
+        {
+          outcome: 'rate_limited',
+          errorMessage: 'slow down',
+          retryAtIso: '2026-07-30T15:30:00.000Z',
+        },
+        new Date('2026-07-30T15:00:00.000Z')
+      )
+    ).toEqual({
+      kind: 'retry',
+      retryAt: '2026-07-30T15:30:00.000Z',
+      reason: 'slow down',
+    });
+  });
+
+  test('turns ambiguous network outcomes into visible reconciliation', () => {
+    expect(
+      publishRecoveryDecision(
+        {
+          outcome: 'unknown',
+          errorMessage: 'Network connection dropped after request dispatch.',
+        },
+        new Date('2026-07-30T15:00:00.000Z')
+      )
+    ).toEqual({
+      kind: 'finalize',
+      status: 'reconciliation_required',
+      errorMessage: 'Network connection dropped after request dispatch.',
+    });
+  });
+
+  test('releases a known-safe failure for a fresh fenced event', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ post_item_id: 'post-1', status: 'queued' }],
+      error: null,
+    });
+
+    await expect(
+      releasePostItemClaimForRetry({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        reason: 'Rate limited before publishing.',
+      })
+    ).resolves.toBe(true);
+    expect(mocks.rpc).toHaveBeenCalledWith('release_post_item_claim_for_retry', {
+      p_workspace_id: 'workspace-1',
+      p_post_item_id: 'post-1',
+      p_attempt_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      p_reason: 'Rate limited before publishing.',
+    });
+  });
+
   test('uses a returning conditional update only when the claim RPC is missing', async () => {
     mocks.rpc.mockResolvedValue({
       data: null,
@@ -329,5 +401,32 @@ describe('atomic post item claim', () => {
         publishedAt: null,
       })
     ).rejects.toThrow(/claim fence/i);
+  });
+
+  test('persists an ambiguous outcome as reconciliation_required', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [
+        {
+          post_item_id: 'post-1',
+          status: 'reconciliation_required',
+          platform_post_id: null,
+        },
+      ],
+      error: null,
+    });
+
+    await expect(
+      finalizePostItemClaim({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        status: 'reconciliation_required',
+        platformPostId: null,
+        platformUrl: null,
+        errorMessage:
+          'Publishing outcome is unknown. Confirm on the platform before retrying.',
+        publishedAt: null,
+      })
+    ).resolves.toMatchObject({ status: 'reconciliation_required' });
   });
 });

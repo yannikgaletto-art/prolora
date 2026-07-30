@@ -29,7 +29,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
 const listQuerySchema = z.object({
   status: z
-    .enum(['queued', 'scheduled', 'publishing', 'published', 'failed', 'deleted'])
+    .enum([
+      'queued',
+      'scheduled',
+      'publishing',
+      'published',
+      'failed',
+      'reconciliation_required',
+      'deleted',
+    ])
     .optional(),
   platform: z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']).optional(),
   date_from: z.string().datetime().optional(),

@@ -24,6 +24,7 @@ export type PostStatus =
   | 'publishing'
   | 'published'
   | 'failed'
+  | 'reconciliation_required'
   | 'deleted';
 
 export type PostCreationSource = 'api' | 'mcp' | 'dashboard';

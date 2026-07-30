@@ -25,6 +25,7 @@ const STATUS_OPTIONS = [
   { value: 'publishing', label: 'Publishing' },
   { value: 'published', label: 'Published' },
   { value: 'failed', label: 'Failed' },
+  { value: 'reconciliation_required', label: 'Check platform' },
   { value: 'deleted', label: 'Deleted' },
 ];
 
@@ -36,6 +37,7 @@ const PLATFORM_OPTIONS = (Object.keys(PLATFORM_META) as PlatformType[]).map((pla
 // Priority order for collapsing several post_items into one row status —
 // worst-first, so a row with one failed item always reads as "Failed".
 const STATUS_PRIORITY: PostStatus[] = [
+  'reconciliation_required',
   'failed',
   'publishing',
   'scheduled',
@@ -147,6 +149,7 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
   const [selected, setSelected] = useState<PostGroupWithItems | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [reconcilingItemId, setReconcilingItemId] = useState<string | null>(null);
 
   function navigate(next: { status?: string; platform?: string; page?: number }) {
     const params = new URLSearchParams();
@@ -170,6 +173,23 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
       setToast({ variant: 'error', message: errorMessage(error) });
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleConfirmedNotPublished(itemId: string) {
+    setReconcilingItemId(itemId);
+    try {
+      await fetchApi(`/v1/posts/items/${itemId}/reconcile`, {
+        method: 'POST',
+        body: JSON.stringify({ resolution: 'not_published' }),
+      });
+      setToast({ variant: 'success', message: 'Fresh publish attempt queued.' });
+      setSelected(null);
+      router.refresh();
+    } catch (error) {
+      setToast({ variant: 'error', message: errorMessage(error) });
+    } finally {
+      setReconcilingItemId(null);
     }
   }
 
@@ -403,6 +423,23 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
                   )}
                   {item.error_message && (
                     <p className="mt-1 text-sm text-red-600">{item.error_message}</p>
+                  )}
+                  {item.status === 'reconciliation_required' && (
+                    <div className="mt-3 rounded-md bg-red-50 p-3">
+                      <p className="text-xs text-red-800">
+                        Check this account on the platform. Only retry after confirming that no post
+                        was created.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        className="mt-2"
+                        loading={reconcilingItemId === item.id}
+                        disabled={reconcilingItemId !== null && reconcilingItemId !== item.id}
+                        onClick={() => handleConfirmedNotPublished(item.id)}
+                      >
+                        Confirm no post exists and retry
+                      </Button>
+                    </div>
                   )}
                   {formatMetrics([item]) !== '—' && (
                     <p className="mt-1 text-xs text-gray-500">{formatMetrics([item])}</p>

@@ -21,8 +21,8 @@ const POST_GROUP_PUBLISH_COLUMNS = [
   'created_via',
 ].join(', ');
 
-interface PublishAttemptResult {
-  outcome: 'published' | 'rate_limited' | 'failed';
+export interface PublishAttemptResult {
+  outcome: 'published' | 'rate_limited' | 'retryable' | 'unknown' | 'failed';
   platformPostId?: string;
   platformUrl?: string;
   errorMessage?: string;
@@ -35,6 +35,19 @@ interface ClaimPostItemInput {
   postItemId: string;
   attemptId: string;
   leaseUntil: string;
+}
+
+export function createPostItemClaim(
+  workspaceId: string,
+  postItemId: string,
+  now: Date = new Date()
+): ClaimPostItemInput {
+  return {
+    workspaceId,
+    postItemId,
+    attemptId: randomUUID(),
+    leaseUntil: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  };
 }
 
 function isMissingNamedRpc(
@@ -109,11 +122,81 @@ export async function executeClaimedPostItem<T>(
   return { claimed: true, result: await execute() };
 }
 
+interface ReleasePostItemClaimInput {
+  workspaceId: string;
+  postItemId: string;
+  attemptId: string;
+  reason: string;
+}
+
+export async function releasePostItemClaimForRetry(
+  input: ReleasePostItemClaimInput
+): Promise<boolean> {
+  const db = getServiceDb();
+  const { data, error } = await db.rpc('release_post_item_claim_for_retry', {
+    p_workspace_id: input.workspaceId,
+    p_post_item_id: input.postItemId,
+    p_attempt_id: input.attemptId,
+    p_reason: input.reason,
+  });
+  if (error) {
+    throw new Error(`[publish-post] safe retry release failed: ${error.message}`);
+  }
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  if (rows.length > 1) {
+    throw new Error('[publish-post] safe retry release returned more than one row');
+  }
+  return rows.length === 1;
+}
+
+export type PublishRecoveryDecision =
+  | { kind: 'retry'; retryAt: string; reason: string }
+  | {
+      kind: 'finalize';
+      status: 'published' | 'failed' | 'reconciliation_required';
+      errorMessage: string | null;
+    };
+
+export function publishRecoveryDecision(
+  attempt: PublishAttemptResult,
+  now: Date = new Date()
+): PublishRecoveryDecision {
+  if (attempt.outcome === 'rate_limited' || attempt.outcome === 'retryable') {
+    const fallbackDelay = attempt.outcome === 'rate_limited' ? 15 * 60_000 : 5 * 60_000;
+    return {
+      kind: 'retry',
+      retryAt: attempt.retryAtIso ?? new Date(now.getTime() + fallbackDelay).toISOString(),
+      reason:
+        attempt.errorMessage ??
+        (attempt.outcome === 'rate_limited'
+          ? 'Rate limited before publishing.'
+          : 'Platform unavailable before publishing.'),
+    };
+  }
+  if (attempt.outcome === 'unknown') {
+    return {
+      kind: 'finalize',
+      status: 'reconciliation_required',
+      errorMessage:
+        attempt.errorMessage ??
+        'Publishing outcome is unknown. Confirm on the platform before retrying.',
+    };
+  }
+  if (attempt.outcome === 'failed') {
+    return {
+      kind: 'finalize',
+      status: 'failed',
+      errorMessage: attempt.errorMessage ?? 'Unknown publish error',
+    };
+  }
+  return { kind: 'finalize', status: 'published', errorMessage: null };
+}
+
 interface FinalizePostItemClaimInput {
   workspaceId: string;
   postItemId: string;
   attemptId: string;
-  status: 'published' | 'failed';
+  status: 'published' | 'failed' | 'reconciliation_required';
   platformPostId: string | null;
   platformUrl: string | null;
   errorMessage: string | null;
@@ -122,7 +205,7 @@ interface FinalizePostItemClaimInput {
 
 interface FinalizedPostItemClaim {
   post_item_id: string;
-  status: 'published' | 'failed';
+  status: 'published' | 'failed' | 'reconciliation_required';
   platform_post_id: string | null;
 }
 
@@ -178,7 +261,7 @@ export async function finalizePostItemClaim(
           error_message: null,
         }
       : {
-          status: 'failed',
+          status: input.status,
           platform_post_id: null,
           platform_url: null,
           published_at: null,
@@ -190,7 +273,11 @@ export async function finalizePostItemClaim(
     .eq('id', input.postItemId)
     .eq('status', 'publishing')
     .select('id, status, platform_post_id')
-    .maybeSingle<{ id: string; status: 'published' | 'failed'; platform_post_id: string | null }>();
+    .maybeSingle<{
+      id: string;
+      status: 'published' | 'failed' | 'reconciliation_required';
+      platform_post_id: string | null;
+    }>();
   if (legacyError) {
     throw new Error(`[publish-post] legacy finalization failed: ${legacyError.message}`);
   }
@@ -258,9 +345,6 @@ export const publishPost = inngest.createFunction(
         throw new Error(`[publish-post] connection load failed: ${connError?.message ?? 'missing'}`);
       }
 
-      const attemptId = randomUUID();
-      const leaseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
       // Rate-limit budget from the last API call (Invariante 5): if
       // exhausted, wait for the reset silently — never a user-facing error.
       const state = connection.rate_limit_state ?? {};
@@ -276,8 +360,6 @@ export const publishPost = inngest.createFunction(
         item,
         group,
         connection,
-        attemptId,
-        leaseUntil,
         waitUntil,
       };
     });
@@ -293,17 +375,29 @@ export const publishPost = inngest.createFunction(
     // 2. The claim and adapter execution share one retried step callback.
     // If the callback reruns after an unknown network outcome, the durable
     // claim is already consumed and the adapter is not called a second time.
-    const execution = await step.run('publish-to-platform', () =>
-      executeClaimedPostItem(
-        {
-          workspaceId,
-          postItemId: prepared.item.id,
-          attemptId: prepared.attemptId,
-          leaseUntil: prepared.leaseUntil,
-        },
-        () => publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
-      )
-    );
+    const execution = await step.run('publish-to-platform', async () => {
+      // Created after every pre-claim sleep, never in the memoized load step.
+      const claim = createPostItemClaim(workspaceId, prepared.item.id);
+      const claimedExecution = await executeClaimedPostItem(claim, async () => {
+        try {
+          return await publishAttempt(
+            prepared.item,
+            prepared.group,
+            prepared.connection,
+            workspaceId
+          );
+        } catch (error) {
+          return {
+            outcome: 'unknown' as const,
+            errorMessage:
+              error instanceof Error
+                ? `Publishing outcome is unknown: ${error.message}`
+                : 'Publishing outcome is unknown after an unexpected adapter failure.',
+          };
+        }
+      });
+      return { ...claimedExecution, attemptId: claim.attemptId };
+    });
     if (!execution.claimed) {
       return {
         published: false,
@@ -311,34 +405,51 @@ export const publishPost = inngest.createFunction(
         reason: 'item is already claimed or has an unresolved external publish attempt',
       };
     }
-    const attempt: PublishAttemptResult =
-      execution.result.outcome === 'rate_limited'
-        ? {
-            outcome: 'failed',
-            errorMessage:
-              execution.result.errorMessage ??
-              'Rate limited before publishing — retry manually after the reset.',
-            rateLimit: execution.result.rateLimit,
-          }
-        : execution.result;
+    const attempt = execution.result;
+    const recovery = publishRecoveryDecision(attempt);
+
+    if (recovery.kind === 'retry') {
+      const released = await step.run('release-safe-retry-claim', () =>
+        releasePostItemClaimForRetry({
+          workspaceId,
+          postItemId: prepared.item.id,
+          attemptId: execution.attemptId,
+          reason: recovery.reason,
+        })
+      );
+      if (!released) {
+        throw new Error('[publish-post] safe retry claim fence was lost');
+      }
+      await step.sleepUntil('wait-for-safe-publish-retry', new Date(recovery.retryAt));
+      await step.sendEvent('enqueue-safe-publish-retry', {
+        name: 'post/publish',
+        data: { postItemId: prepared.item.id, workspaceId },
+      });
+      return {
+        published: false,
+        deferred: true,
+        retryAt: recovery.retryAt,
+        reason: recovery.reason,
+      };
+    }
 
     // 3. Finalize status (write -> read-back -> verify).
     await step.run('finalize-status', async () => {
       const db = getServiceDb();
-      const isPublished = attempt.outcome === 'published';
+      const isPublished = recovery.status === 'published';
       const publishedAt = isPublished ? new Date().toISOString() : null;
       const finalized = await finalizePostItemClaim({
         workspaceId,
         postItemId: prepared.item.id,
-        attemptId: prepared.attemptId,
-        status: isPublished ? 'published' : 'failed',
+        attemptId: execution.attemptId,
+        status: recovery.status,
         platformPostId: isPublished ? (attempt.platformPostId ?? null) : null,
         platformUrl: isPublished ? (attempt.platformUrl ?? null) : null,
-        errorMessage: isPublished ? null : (attempt.errorMessage ?? 'Unknown publish error'),
+        errorMessage: recovery.errorMessage,
         publishedAt,
       });
       if (
-        finalized.status !== (isPublished ? 'published' : 'failed') ||
+        finalized.status !== recovery.status ||
         (isPublished && !finalized.platform_post_id)
       ) {
         throw new Error('[publish-post] status verification failed');
@@ -401,8 +512,9 @@ export const publishPost = inngest.createFunction(
 // AUTH_EXPIRED -> forced token refresh + one retry (same call)
 // RATE_LIMITED -> reported to the caller for sleepUntil
 // CONTENT_REJECTED -> failed, no retry
-// PLATFORM_DOWN / NETWORK_ERROR -> thrown (Inngest retry)
-async function publishAttempt(
+// PLATFORM_DOWN -> safe fresh-attempt retry
+// NETWORK_ERROR -> operator reconciliation (the external result is ambiguous)
+export async function publishAttempt(
   item: PostItemRow,
   group: PostGroupRow,
   connection: ConnectionRow,
@@ -445,25 +557,13 @@ async function publishAttempt(
     };
   };
 
-  try {
-    return await publishOnce();
-  } catch (error) {
-    if (!(error instanceof PlatformError)) throw error;
-
+  const classifyPlatformError = (error: PlatformError): PublishAttemptResult => {
     switch (error.type) {
-      case 'AUTH_EXPIRED': {
-        // Token died mid-flight: force refresh (advisory-locked), retry once.
-        try {
-          await refreshConnectionToken(connection.id, workspaceId, true);
-          return await publishOnce();
-        } catch (retryError) {
-          const message =
-            retryError instanceof PlatformError ? retryError.message : 'Publish failed after token refresh';
-          return { outcome: 'failed', errorMessage: message };
-        }
-      }
       case 'AUTH_REVOKED':
-        return { outcome: 'failed', errorMessage: `Access revoked — reconnect required (${error.message})` };
+        return {
+          outcome: 'failed',
+          errorMessage: `Access revoked — reconnect required (${error.message})`,
+        };
       case 'RATE_LIMITED':
         return {
           outcome: 'rate_limited',
@@ -473,10 +573,67 @@ async function publishAttempt(
       case 'CONTENT_REJECTED':
         return { outcome: 'failed', errorMessage: error.message };
       case 'PLATFORM_DOWN':
+        return {
+          outcome: 'retryable',
+          retryAtIso: error.retryAfter?.toISOString(),
+          errorMessage: error.message,
+        };
       case 'NETWORK_ERROR':
-        throw error; // transient -> Inngest exponential retry
-      default:
+        return {
+          outcome: 'unknown',
+          errorMessage: `Publishing outcome is unknown: ${error.message}`,
+        };
+      case 'AUTH_EXPIRED':
         return { outcome: 'failed', errorMessage: error.message };
+      case 'UNKNOWN':
+        return {
+          outcome: 'unknown',
+          errorMessage: `Publishing outcome is unknown: ${error.message}`,
+        };
+      default:
+        return {
+          outcome: 'unknown',
+          errorMessage: `Publishing outcome is unknown: ${error.message}`,
+        };
+    }
+  };
+
+  try {
+    return await publishOnce();
+  } catch (error) {
+    if (!(error instanceof PlatformError)) throw error;
+
+    if (error.type !== 'AUTH_EXPIRED') {
+      return classifyPlatformError(error);
+    }
+
+    // Token rejection proves the first request did not publish. A refresh
+    // failure is therefore safe to retry from a fresh claim/event.
+    try {
+      await refreshConnectionToken(connection.id, workspaceId, true);
+    } catch (refreshError) {
+      return {
+        outcome: 'retryable',
+        errorMessage:
+          refreshError instanceof Error
+            ? `Token refresh failed before publishing: ${refreshError.message}`
+            : 'Token refresh failed before publishing.',
+      };
+    }
+
+    try {
+      return await publishOnce();
+    } catch (retryError) {
+      if (retryError instanceof PlatformError) {
+        return classifyPlatformError(retryError);
+      }
+      return {
+        outcome: 'unknown',
+        errorMessage:
+          retryError instanceof Error
+            ? `Publishing outcome is unknown after token refresh: ${retryError.message}`
+            : 'Publishing outcome is unknown after token refresh.',
+      };
     }
   }
 }

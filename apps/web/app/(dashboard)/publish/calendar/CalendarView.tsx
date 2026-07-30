@@ -16,6 +16,7 @@ import type { CalendarGroup, CalendarGroupStatus } from '@/lib/posts/calendar';
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 const STATUS_META: Record<CalendarGroupStatus, { dot: string; label: string }> = {
+  reconciliation_required: { dot: 'bg-red-800', label: 'Check platform' },
   draft: { dot: 'bg-gray-400', label: 'Draft' },
   scheduled: { dot: 'bg-primary-600', label: 'Scheduled' },
   queued: { dot: 'bg-sky-500', label: 'Queued' },
@@ -251,7 +252,7 @@ export function CalendarView({ initialGroups, initialDrafts }: CalendarViewProps
         </div>
 
         <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-          {(['draft', 'scheduled', 'publishing', 'published', 'failed'] as CalendarGroupStatus[]).map((s) => (
+          {(['draft', 'scheduled', 'publishing', 'published', 'failed', 'reconciliation_required'] as CalendarGroupStatus[]).map((s) => (
             <span key={s} className="inline-flex items-center gap-1.5">
               <span className={`h-2 w-2 rounded-full ${STATUS_META[s].dot}`} aria-hidden="true" />
               {STATUS_META[s].label}

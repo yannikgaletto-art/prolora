@@ -19,6 +19,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   // Posts
   published: 'green',
   failed: 'red',
+  reconciliation_required: 'red',
   scheduled: 'amber',
   queued: 'gray',
   publishing: 'teal',

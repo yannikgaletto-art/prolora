@@ -10,7 +10,16 @@ import { PostsExplorer } from './PostsExplorer';
 
 export const metadata: Metadata = { title: 'Posts — Prolora' };
 
-const STATUS_VALUES: PostStatus[] = ['draft', 'queued', 'scheduled', 'publishing', 'published', 'failed', 'deleted'];
+const STATUS_VALUES: PostStatus[] = [
+  'draft',
+  'queued',
+  'scheduled',
+  'publishing',
+  'published',
+  'failed',
+  'reconciliation_required',
+  'deleted',
+];
 const PLATFORM_VALUES: PlatformType[] = ['linkedin', 'x', 'bluesky', 'mastodon', 'telegram', 'discord', 'devto', 'hashnode'];
 
 const PER_PAGE = 20;

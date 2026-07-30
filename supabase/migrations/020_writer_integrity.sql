@@ -22,7 +22,19 @@ ALTER TABLE post_items
   ADD COLUMN IF NOT EXISTS publish_claim_attempt_id UUID NULL,
   ADD COLUMN IF NOT EXISTS publish_claimed_at TIMESTAMPTZ NULL,
   -- Diagnostic deadline only. It is never an automatic takeover right.
-  ADD COLUMN IF NOT EXISTS publish_claim_lease_until TIMESTAMPTZ NULL;
+  ADD COLUMN IF NOT EXISTS publish_claim_lease_until TIMESTAMPTZ NULL,
+  -- Makes a confirmed no-publish resolution idempotent until its replacement
+  -- event acquires a fresh claim.
+  ADD COLUMN IF NOT EXISTS publish_reconciliation_resolved_at TIMESTAMPTZ NULL;
+
+ALTER TABLE post_items
+  DROP CONSTRAINT IF EXISTS post_items_status_check;
+
+ALTER TABLE post_items
+  ADD CONSTRAINT post_items_status_check CHECK (status IN (
+    'draft', 'queued', 'scheduled', 'publishing', 'published', 'failed',
+    'reconciliation_required', 'deleted'
+  ));
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_items_content_item_variant
   ON post_items (content_item_variant_id)
@@ -320,7 +332,8 @@ BEGIN
     status = 'publishing',
     publish_claim_attempt_id = p_attempt_id,
     publish_claimed_at = now(),
-    publish_claim_lease_until = p_lease_until
+    publish_claim_lease_until = p_lease_until,
+    publish_reconciliation_resolved_at = NULL
   WHERE pi.id = p_post_item_id
     AND pi.post_group_id = v_post_group_id
   RETURNING pi.id, pi.publish_claim_attempt_id, pi.publish_claim_lease_until
@@ -333,6 +346,79 @@ $$;
 REVOKE ALL ON FUNCTION claim_post_item(UUID, UUID, UUID, TIMESTAMPTZ)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION claim_post_item(UUID, UUID, UUID, TIMESTAMPTZ)
+  TO service_role;
+
+-- A platform response that proves no post was created (rate limit/platform
+-- unavailable) may release the consumed claim for a fresh event/attempt.
+-- Ambiguous network outcomes never call this function.
+CREATE OR REPLACE FUNCTION release_post_item_claim_for_retry(
+  p_workspace_id UUID,
+  p_post_item_id UUID,
+  p_attempt_id UUID,
+  p_reason TEXT
+)
+RETURNS TABLE (
+  post_item_id UUID,
+  status TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_status TEXT;
+  v_claim_attempt_id UUID;
+BEGIN
+  IF p_reason IS NULL OR char_length(btrim(p_reason)) NOT BETWEEN 1 AND 1000 THEN
+    RAISE EXCEPTION 'safe retry reason must contain 1 to 1000 characters'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT
+    pi.status,
+    pi.publish_claim_attempt_id
+  INTO
+    v_status,
+    v_claim_attempt_id
+  FROM public.post_items AS pi
+  INNER JOIN public.post_groups AS pg
+    ON pg.id = pi.post_group_id
+  WHERE pi.id = p_post_item_id
+    AND pg.workspace_id = p_workspace_id
+  FOR UPDATE OF pi;
+
+  IF NOT FOUND OR v_claim_attempt_id IS DISTINCT FROM p_attempt_id THEN
+    RETURN;
+  END IF;
+
+  IF v_status = 'publishing' THEN
+    UPDATE public.post_items AS pi
+    SET
+      status = 'queued',
+      error_message = btrim(p_reason)
+    WHERE pi.id = p_post_item_id
+      AND pi.status = 'publishing'
+      AND pi.publish_claim_attempt_id = p_attempt_id
+    RETURNING pi.id, pi.status
+    INTO post_item_id, status;
+    IF FOUND THEN
+      RETURN NEXT;
+    END IF;
+    RETURN;
+  END IF;
+
+  -- Idempotent retry after a committed response was lost.
+  IF v_status = 'queued' THEN
+    post_item_id := p_post_item_id;
+    status := v_status;
+    RETURN NEXT;
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION release_post_item_claim_for_retry(UUID, UUID, UUID, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION release_post_item_claim_for_retry(UUID, UUID, UUID, TEXT)
   TO service_role;
 
 -- ---------------------------------------------------------------------------
@@ -362,8 +448,8 @@ DECLARE
   v_status TEXT;
   v_claim_attempt_id UUID;
 BEGIN
-  IF p_status NOT IN ('published', 'failed') THEN
-    RAISE EXCEPTION 'final publish status must be published or failed'
+  IF p_status NOT IN ('published', 'failed', 'reconciliation_required') THEN
+    RAISE EXCEPTION 'invalid final publish status'
       USING ERRCODE = '22023';
   END IF;
 
@@ -410,7 +496,8 @@ BEGIN
       ELSE NULL
     END,
     error_message = CASE
-      WHEN p_status = 'failed' THEN COALESCE(p_error_message, 'Unknown publish error')
+      WHEN p_status IN ('failed', 'reconciliation_required')
+        THEN COALESCE(p_error_message, 'Unknown publish error')
       ELSE NULL
     END
   WHERE pi.id = p_post_item_id
@@ -431,6 +518,112 @@ REVOKE ALL ON FUNCTION finalize_post_item_claim(
 GRANT EXECUTE ON FUNCTION finalize_post_item_claim(
   UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ
 ) TO service_role;
+
+-- Explicit operator resolution for ambiguous external outcomes. A confirmed
+-- no-publish result becomes queued for a fresh fenced attempt; a confirmed
+-- external post becomes published without another adapter request.
+CREATE OR REPLACE FUNCTION resolve_post_item_reconciliation(
+  p_workspace_id UUID,
+  p_post_item_id UUID,
+  p_resolution TEXT,
+  p_platform_post_id TEXT,
+  p_platform_url TEXT
+)
+RETURNS TABLE (
+  post_item_id UUID,
+  status TEXT,
+  platform_post_id TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_status TEXT;
+  v_reconciliation_resolved_at TIMESTAMPTZ;
+BEGIN
+  IF p_resolution NOT IN ('not_published', 'published') THEN
+    RAISE EXCEPTION 'resolution must be not_published or published'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_resolution = 'published' AND p_platform_post_id IS NULL THEN
+    RAISE EXCEPTION 'published reconciliation needs a platform post id'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT
+    pi.status,
+    pi.publish_reconciliation_resolved_at
+  INTO
+    v_status,
+    v_reconciliation_resolved_at
+  FROM public.post_items AS pi
+  INNER JOIN public.post_groups AS pg
+    ON pg.id = pi.post_group_id
+  WHERE pi.id = p_post_item_id
+    AND pg.workspace_id = p_workspace_id
+  FOR UPDATE OF pi;
+
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  -- A previous request may have committed the resolution but failed while
+  -- enqueueing the replacement event. Return the same queued row so the API
+  -- can safely retry that durable enqueue.
+  IF p_resolution = 'not_published'
+    AND v_status = 'queued'
+    AND v_reconciliation_resolved_at IS NOT NULL
+  THEN
+    post_item_id := p_post_item_id;
+    status := v_status;
+    platform_post_id := NULL;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  IF v_status <> 'reconciliation_required' THEN
+    RETURN;
+  END IF;
+
+  UPDATE public.post_items AS pi
+  SET
+    status = CASE
+      WHEN p_resolution = 'not_published' THEN 'queued'
+      ELSE 'published'
+    END,
+    platform_post_id = CASE
+      WHEN p_resolution = 'published' THEN p_platform_post_id
+      ELSE NULL
+    END,
+    platform_url = CASE
+      WHEN p_resolution = 'published' THEN p_platform_url
+      ELSE NULL
+    END,
+    published_at = CASE
+      WHEN p_resolution = 'published' THEN now()
+      ELSE NULL
+    END,
+    publish_reconciliation_resolved_at = CASE
+      WHEN p_resolution = 'not_published' THEN now()
+      ELSE NULL
+    END,
+    error_message = NULL
+  WHERE pi.id = p_post_item_id
+    AND pi.status = 'reconciliation_required'
+  RETURNING pi.id, pi.status, pi.platform_post_id
+  INTO post_item_id, status, platform_post_id;
+
+  IF FOUND THEN
+    RETURN NEXT;
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION resolve_post_item_reconciliation(UUID, UUID, TEXT, TEXT, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION resolve_post_item_reconciliation(UUID, UUID, TEXT, TEXT, TEXT)
+  TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- Deferred to migration 022
