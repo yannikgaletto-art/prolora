@@ -65,6 +65,7 @@ describe('POST /v1/posts/items/:id/reconcile', () => {
       p_platform_url: null,
     });
     expect(mocks.send).toHaveBeenCalledWith({
+      id: 'post-reconciliation-republish:item-1',
       name: 'post/publish',
       data: { postItemId: 'item-1', workspaceId: 'workspace-authenticated' },
     });
@@ -202,6 +203,65 @@ describe('POST /v1/posts/items/:id/reconcile', () => {
     expect(mocks.send).toHaveBeenCalledWith({
       id: 'post-published-effects:item-1',
       name: 'post/published-effects',
+      data: { postItemId: 'item-1', workspaceId: 'workspace-authenticated' },
+    });
+  });
+
+  test('replays a pre-020 confirmed-no-post enqueue after the first send response is lost', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function resolve_post_item_reconciliation',
+      },
+    });
+    const firstUpdate = queryChain({
+      id: 'item-1',
+      status: 'queued',
+      platform_post_id: null,
+    });
+    mocks.from
+      .mockReturnValueOnce(
+        queryChain({
+          id: 'item-1',
+          status: 'failed',
+          error_message: '[reconciliation_required] request timed out',
+          platform_post_id: null,
+        })
+      )
+      .mockReturnValueOnce(firstUpdate)
+      .mockReturnValueOnce(
+        queryChain({
+          id: 'item-1',
+          status: 'queued',
+          error_message: '[reconciliation_republish_pending] confirmed no external post',
+          platform_post_id: null,
+        })
+      );
+    mocks.send
+      .mockRejectedValueOnce(new Error('enqueue response lost'))
+      .mockResolvedValueOnce(undefined);
+
+    const first = await POST(request({ resolution: 'not_published' }), {
+      params: Promise.resolve({ id: 'item-1' }),
+    });
+    expect(first.status).toBe(500);
+    expect(firstUpdate.update).toHaveBeenCalledWith({
+      status: 'queued',
+      platform_post_id: null,
+      platform_url: null,
+      published_at: null,
+      error_message: expect.stringContaining('[reconciliation_republish_pending]'),
+    });
+
+    const replay = await POST(request({ resolution: 'not_published' }), {
+      params: Promise.resolve({ id: 'item-1' }),
+    });
+
+    expect(replay.status).toBe(200);
+    expect(mocks.send).toHaveBeenNthCalledWith(2, {
+      id: 'post-reconciliation-republish:item-1',
+      name: 'post/publish',
       data: { postItemId: 'item-1', workspaceId: 'workspace-authenticated' },
     });
   });

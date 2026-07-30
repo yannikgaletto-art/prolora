@@ -543,6 +543,68 @@ GRANT EXECUTE ON FUNCTION finalize_post_item_claim(
   UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ
 ) TO service_role;
 
+-- A claim whose worker never recorded a definitive response must become
+-- visible for human reconciliation. Expiry never grants another publish
+-- attempt: the only automatic transition is publishing -> reconciliation.
+CREATE OR REPLACE FUNCTION reconcile_expired_post_item_claims(
+  p_now TIMESTAMPTZ,
+  p_limit INTEGER DEFAULT 200
+)
+RETURNS TABLE (
+  post_item_id UUID,
+  workspace_id UUID
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_now IS NULL THEN
+    RAISE EXCEPTION 'reconciliation timestamp is required'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_limit NOT BETWEEN 1 AND 1000 THEN
+    RAISE EXCEPTION 'reconciliation limit must be between 1 and 1000'
+      USING ERRCODE = '22023';
+  END IF;
+
+  RETURN QUERY
+  WITH candidates AS (
+    SELECT
+      pi.id,
+      pg.workspace_id
+    FROM public.post_items AS pi
+    INNER JOIN public.post_groups AS pg
+      ON pg.id = pi.post_group_id
+    WHERE pi.status = 'publishing'
+      AND pi.publish_claim_lease_until IS NOT NULL
+      AND pi.publish_claim_lease_until <= p_now
+    ORDER BY pi.publish_claim_lease_until ASC
+    LIMIT p_limit
+    FOR UPDATE OF pi SKIP LOCKED
+  ),
+  reconciled AS (
+    UPDATE public.post_items AS pi
+    SET
+      status = 'reconciliation_required',
+      error_message =
+        'Publishing outcome is unknown because the worker did not finalize before the claim expired. Confirm on the platform before retrying.'
+    FROM candidates
+    WHERE pi.id = candidates.id
+      AND pi.status = 'publishing'
+      AND pi.publish_claim_lease_until <= p_now
+    RETURNING pi.id, candidates.workspace_id
+  )
+  SELECT reconciled.id, reconciled.workspace_id
+  FROM reconciled;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION reconcile_expired_post_item_claims(TIMESTAMPTZ, INTEGER)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION reconcile_expired_post_item_claims(TIMESTAMPTZ, INTEGER)
+  TO service_role;
+
 -- Explicit operator resolution for ambiguous external outcomes. A confirmed
 -- no-publish result becomes queued for a fresh fenced attempt; a confirmed
 -- external post becomes published without another adapter request.

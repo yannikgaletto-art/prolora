@@ -38,6 +38,11 @@ interface ClaimPostItemInput {
   leaseUntil: string;
 }
 
+interface ReconciledExpiredPostItemClaim {
+  post_item_id: string;
+  workspace_id: string;
+}
+
 export function createPostItemClaim(
   workspaceId: string,
   postItemId: string,
@@ -49,6 +54,27 @@ export function createPostItemClaim(
     attemptId: randomUUID(),
     leaseUntil: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
   };
+}
+
+export async function reconcileExpiredPostItemClaims(
+  now: Date = new Date(),
+  limit = 200
+): Promise<Array<{ postItemId: string; workspaceId: string }>> {
+  const db = getServiceDb();
+  const { data, error } = await db.rpc('reconcile_expired_post_item_claims', {
+    p_now: now.toISOString(),
+    p_limit: limit,
+  });
+  if (error) {
+    if (isMissingNamedRpc(error, 'reconcile_expired_post_item_claims')) return [];
+    throw new Error(`[publish-post] expired claim reconciliation failed: ${error.message}`);
+  }
+  const rows = (Array.isArray(data) ? data : data ? [data] : []) as
+    ReconciledExpiredPostItemClaim[];
+  return rows.map((row) => ({
+    postItemId: row.post_item_id,
+    workspaceId: row.workspace_id,
+  }));
 }
 
 function isMissingNamedRpc(
@@ -632,6 +658,20 @@ export const publishPostEffects = inngest.createFunction(
     });
 
     return { delivered: true };
+  }
+);
+
+export const reconcileExpiredPublishing = inngest.createFunction(
+  {
+    id: 'reconcile-expired-publishing',
+    retries: 1,
+  },
+  { cron: '*/15 * * * *' },
+  async ({ step }) => {
+    const reconciled = await step.run('mark-expired-publish-claims', () =>
+      reconcileExpiredPostItemClaims()
+    );
+    return { reconciliationRequired: reconciled.length };
   }
 );
 

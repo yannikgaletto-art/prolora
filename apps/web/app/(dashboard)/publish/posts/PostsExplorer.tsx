@@ -18,7 +18,10 @@ import type { PostGroupWithItems } from '@/lib/posts/list-posts';
 import type { MediaRef, PostItemRow } from '@/lib/db';
 import { PLATFORM_META } from '../platform-meta';
 import { storeAppliedTemplate } from '../handoff';
-import { isLegacyReconciliationRequired } from '@/lib/posts/reconciliation-state';
+import {
+  isLegacyReconciliationRequired,
+  isLegacyRepublishPending,
+} from '@/lib/posts/reconciliation-state';
 
 const STATUS_OPTIONS = [
   { value: 'draft', label: 'Draft' },
@@ -456,8 +459,26 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
                   {item.error_message && (
                     <p className="mt-1 text-sm text-red-600">{item.error_message}</p>
                   )}
-                  {(item.status === 'reconciliation_required' ||
-                    isLegacyReconciliationRequired(item)) && (
+                  {isLegacyRepublishPending(item) && (
+                    <div className="mt-3 rounded-md bg-amber-50 p-3">
+                      <p className="text-xs text-amber-900">
+                        No platform post was found. Delivery of the replacement publish event was
+                        interrupted, so it is safe to enqueue the confirmed attempt again.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        className="mt-2"
+                        loading={reconcilingItemId === item.id}
+                        disabled={reconcilingItemId !== null && reconcilingItemId !== item.id}
+                        onClick={() => handleConfirmedNotPublished(item.id)}
+                      >
+                        Retry confirmed no-post delivery
+                      </Button>
+                    </div>
+                  )}
+                  {!isLegacyRepublishPending(item) &&
+                    (item.status === 'reconciliation_required' ||
+                      isLegacyReconciliationRequired(item)) && (
                     <div className="mt-3 rounded-md bg-red-50 p-3">
                       <p className="text-xs text-red-800">
                         Check this account on the platform, then choose exactly one resolution.

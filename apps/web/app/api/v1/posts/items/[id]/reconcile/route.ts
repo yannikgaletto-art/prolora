@@ -7,6 +7,8 @@ import { inngest } from '@/lib/inngest/client';
 import {
   LEGACY_RECONCILIATION_PREFIX,
   isLegacyReconciliationRequired,
+  isLegacyRepublishPending,
+  legacyRepublishPendingMessage,
 } from '@/lib/posts/reconciliation-state';
 
 const reconciliationSchema = z
@@ -63,6 +65,17 @@ async function resolveLegacyReconciliation(input: {
 
   // A repeated confirmed-published request after a lost HTTP response is safe.
   if (
+    current &&
+    input.resolution === 'not_published' &&
+    isLegacyRepublishPending(current)
+  ) {
+    return {
+      post_item_id: current.id,
+      status: 'queued',
+      platform_post_id: null,
+    };
+  }
+  if (
     current?.status === 'published' &&
     input.resolution === 'published' &&
     current.platform_post_id === input.platformPostId
@@ -83,7 +96,7 @@ async function resolveLegacyReconciliation(input: {
       platform_post_id: published ? input.platformPostId : null,
       platform_url: published ? input.platformUrl : null,
       published_at: published ? new Date().toISOString() : null,
-      error_message: null,
+      error_message: published ? null : legacyRepublishPendingMessage(),
     })
     .eq('id', input.postItemId)
     .eq('status', 'failed')
@@ -161,6 +174,7 @@ export async function POST(
       // The RPC is idempotent while this delivery is pending, so a transient
       // enqueue failure can be recovered by repeating the operator action.
       await inngest.send({
+        id: `post-reconciliation-republish:${id}`,
         name: 'post/publish',
         data: { postItemId: id, workspaceId },
       });

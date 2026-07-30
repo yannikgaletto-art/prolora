@@ -230,6 +230,37 @@ describe('atomic post item claim', () => {
     ).resolves.toBe(false);
   });
 
+  test('discovers expired claims through one atomic reconciliation RPC', async () => {
+    const publishModule = await import('@/lib/inngest/functions/publish-post');
+    const reconcileExpiredPostItemClaims = (
+      publishModule as typeof publishModule & {
+        reconcileExpiredPostItemClaims?: (
+          now: Date,
+          limit: number
+        ) => Promise<Array<{ postItemId: string; workspaceId: string }>>;
+      }
+    ).reconcileExpiredPostItemClaims;
+
+    expect(reconcileExpiredPostItemClaims).toBeTypeOf('function');
+    if (!reconcileExpiredPostItemClaims) return;
+
+    mocks.rpc.mockResolvedValue({
+      data: [{ post_item_id: 'post-1', workspace_id: 'workspace-1' }],
+      error: null,
+    });
+
+    await expect(
+      reconcileExpiredPostItemClaims(new Date('2026-08-01T12:00:00.000Z'), 25)
+    ).resolves.toEqual([{ postItemId: 'post-1', workspaceId: 'workspace-1' }]);
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'reconcile_expired_post_item_claims',
+      {
+        p_now: '2026-08-01T12:00:00.000Z',
+        p_limit: 25,
+      }
+    );
+  });
+
   test('computes the claim lease at execution time after a long rate-limit sleep', () => {
     const beforeSleep = new Date('2026-07-30T10:00:00.000Z');
     const afterSleep = new Date('2026-07-31T18:00:00.000Z');

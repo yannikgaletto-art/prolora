@@ -247,6 +247,14 @@ describe('migration 020 writer integrity contract', () => {
     ),
     'utf8'
   );
+  const publishFunctions = readFileSync(
+    resolve(process.cwd(), 'lib/inngest/functions/publish-post.ts'),
+    'utf8'
+  );
+  const inngestRoute = readFileSync(
+    resolve(process.cwd(), 'app/api/inngest/route.ts'),
+    'utf8'
+  );
 
   test('extends state and links one writer variant to at most one post item', () => {
     expect(migration).toMatch(/awaiting_approval/);
@@ -358,6 +366,23 @@ describe('migration 020 writer integrity contract', () => {
     expect(releaseFunction).toMatch(/retry_count/);
     expect(releaseFunction).toMatch(/THEN 'failed'/);
     expect(releaseFunction).toMatch(/ELSE 'queued'/);
+  });
+
+  test('atomically discovers expired publish claims for human reconciliation only', () => {
+    const reconcileExpiredFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION reconcile_expired_post_item_claims[\s\S]*?\$\$;/
+    )?.[0];
+
+    expect(reconcileExpiredFunction).toBeDefined();
+    expect(reconcileExpiredFunction).toMatch(/status\s*=\s*'publishing'/);
+    expect(reconcileExpiredFunction).toMatch(
+      /publish_claim_lease_until\s*<=\s*p_now/
+    );
+    expect(reconcileExpiredFunction).toMatch(/FOR UPDATE OF pi SKIP LOCKED/);
+    expect(reconcileExpiredFunction).toMatch(/status\s*=\s*'reconciliation_required'/);
+    expect(reconcileExpiredFunction).not.toMatch(/status\s*=\s*'queued'/);
+    expect(publishFunctions).toContain('reconcileExpiredPublishing');
+    expect(inngestRoute).toContain('reconcileExpiredPublishing');
   });
 
   test('assigns materialize_writer_bundle to Task 4 migration 022, not Task 1', () => {

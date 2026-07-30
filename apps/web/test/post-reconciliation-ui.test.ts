@@ -14,4 +14,9 @@ describe('publish reconciliation UI', () => {
     expect(source).toContain('platform_post_id');
     expect(source).toContain('platform_url');
   });
+
+  test('keeps a failed legacy republish enqueue visible for safe replay', () => {
+    expect(source).toContain('isLegacyRepublishPending');
+    expect(source).toContain('Retry confirmed no-post delivery');
+  });
 });
