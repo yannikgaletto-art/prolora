@@ -110,7 +110,8 @@ export interface MediaRef {
 export interface PostItemRow {
   id: string;
   post_group_id: string;
-  content_item_variant_id: string | null;
+  /** Migration 020; omitted by the compatibility allowlist until rollout is complete. */
+  content_item_variant_id?: string | null;
   connection_id: string;
   platform: 'linkedin' | 'x' | 'bluesky' | 'mastodon' | 'telegram' | 'discord' | 'devto' | 'hashnode';
   adapted_content: string | null;
@@ -123,11 +124,23 @@ export interface PostItemRow {
   error_message: string | null;
   metrics: Record<string, unknown>;
   metrics_updated_at: string | null;
-  publish_claim_attempt_id: string | null;
-  publish_claimed_at: string | null;
-  publish_claim_lease_until: string | null;
+  /** Migration 020; omitted by the compatibility allowlist until rollout is complete. */
+  publish_claim_attempt_id?: string | null;
+  /** Migration 020; omitted by the compatibility allowlist until rollout is complete. */
+  publish_claimed_at?: string | null;
+  /** Migration 020; omitted by the compatibility allowlist until rollout is complete. */
+  publish_claim_lease_until?: string | null;
   created_at: string;
 }
+
+// Deliberately separate from POST_ITEM_ROW_COLUMNS: selecting these before
+// Migration 020 reaches production would break the schema-drift fallback.
+export const POST_ITEM_WRITER_INTEGRITY_COLUMNS = [
+  'content_item_variant_id',
+  'publish_claim_attempt_id',
+  'publish_claimed_at',
+  'publish_claim_lease_until',
+] as const;
 
 export const POST_ITEM_ROW_COLUMNS = [
   'id', 'post_group_id', 'connection_id', 'platform', 'adapted_content',

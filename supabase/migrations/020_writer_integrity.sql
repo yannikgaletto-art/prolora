@@ -21,22 +21,18 @@ ALTER TABLE post_items
     REFERENCES content_item_variants(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS publish_claim_attempt_id UUID NULL,
   ADD COLUMN IF NOT EXISTS publish_claimed_at TIMESTAMPTZ NULL,
+  -- Diagnostic deadline only. It is never an automatic takeover right.
   ADD COLUMN IF NOT EXISTS publish_claim_lease_until TIMESTAMPTZ NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_items_content_item_variant
   ON post_items (content_item_variant_id)
   WHERE content_item_variant_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_post_items_publish_claim_lease
-  ON post_items (publish_claim_lease_until)
-  WHERE status = 'publishing';
-
 -- ---------------------------------------------------------------------------
 -- Atomic content-item transition
 --
--- `__content_item_patch` is a private transport key used by the application
--- to keep the existing angle/concept/gate/mix/delivery patch in this same
--- transaction. It is stripped before the public transition metadata is saved.
+-- The typed patch has its own parameter. Audit metadata is never interpreted
+-- as update instructions, so caller-controlled keys cannot inject row changes.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION transition_content_item_atomic(
@@ -48,6 +44,7 @@ CREATE OR REPLACE FUNCTION transition_content_item_atomic(
   p_actor TEXT,
   p_actor_id TEXT,
   p_metadata JSONB,
+  p_patch JSONB,
   p_scheduled_at TIMESTAMPTZ
 )
 RETURNS TABLE (
@@ -78,8 +75,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_item public.content_items%ROWTYPE;
-  v_patch JSONB := COALESCE(p_metadata -> '__content_item_patch', '{}'::JSONB);
-  v_audit_metadata JSONB := COALESCE(p_metadata, '{}'::JSONB) - '__content_item_patch';
+  v_patch JSONB := COALESCE(p_patch, '{}'::JSONB);
 BEGIN
   IF p_reason IS NULL OR char_length(btrim(p_reason)) NOT BETWEEN 1 AND 1000 THEN
     RAISE EXCEPTION 'transition reason must contain 1 to 1000 characters'
@@ -228,7 +224,7 @@ BEGIN
     btrim(p_reason),
     p_actor,
     p_actor_id,
-    v_audit_metadata
+    COALESCE(p_metadata, '{}'::JSONB)
   );
 
   RETURN QUERY
@@ -257,10 +253,10 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION transition_content_item_atomic(
-  UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TIMESTAMPTZ
+  UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, JSONB, TIMESTAMPTZ
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION transition_content_item_atomic(
-  UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TIMESTAMPTZ
+  UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, JSONB, TIMESTAMPTZ
 ) TO service_role;
 
 -- ---------------------------------------------------------------------------
@@ -285,8 +281,6 @@ AS $$
 DECLARE
   v_post_group_id UUID;
   v_status TEXT;
-  v_claim_attempt_id UUID;
-  v_claim_lease_until TIMESTAMPTZ;
 BEGIN
   IF p_attempt_id IS NULL THEN
     RAISE EXCEPTION 'publish claim attempt id is required'
@@ -300,14 +294,10 @@ BEGIN
 
   SELECT
     pi.post_group_id,
-    pi.status,
-    pi.publish_claim_attempt_id,
-    pi.publish_claim_lease_until
+    pi.status
   INTO
     v_post_group_id,
-    v_status,
-    v_claim_attempt_id,
-    v_claim_lease_until
+    v_status
   FROM public.post_items AS pi
   INNER JOIN public.post_groups AS pg
     ON pg.id = pi.post_group_id
@@ -319,18 +309,9 @@ BEGIN
     RETURN;
   END IF;
 
-  IF NOT (
-    v_status IN ('queued', 'scheduled')
-    OR (
-      v_status = 'publishing'
-      AND v_claim_attempt_id = p_attempt_id
-    )
-    OR (
-      v_status = 'publishing'
-      AND v_claim_lease_until IS NOT NULL
-      AND v_claim_lease_until <= now()
-    )
-  ) THEN
+  -- Durable terminal claim: neither the same attempt nor an expired lease may
+  -- win again. Unknown external outcomes require explicit operator recovery.
+  IF v_status NOT IN ('queued', 'scheduled') THEN
     RETURN;
   END IF;
 
@@ -353,6 +334,103 @@ REVOKE ALL ON FUNCTION claim_post_item(UUID, UUID, UUID, TIMESTAMPTZ)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION claim_post_item(UUID, UUID, UUID, TIMESTAMPTZ)
   TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Attempt-fenced finalization
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION finalize_post_item_claim(
+  p_workspace_id UUID,
+  p_post_item_id UUID,
+  p_attempt_id UUID,
+  p_status TEXT,
+  p_platform_post_id TEXT,
+  p_platform_url TEXT,
+  p_error_message TEXT,
+  p_published_at TIMESTAMPTZ
+)
+RETURNS TABLE (
+  post_item_id UUID,
+  status TEXT,
+  platform_post_id TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_status TEXT;
+  v_claim_attempt_id UUID;
+BEGIN
+  IF p_status NOT IN ('published', 'failed') THEN
+    RAISE EXCEPTION 'final publish status must be published or failed'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_status = 'published' AND (
+    p_platform_post_id IS NULL OR p_published_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'published finalization needs platform id and timestamp'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT
+    pi.status,
+    pi.publish_claim_attempt_id
+  INTO
+    v_status,
+    v_claim_attempt_id
+  FROM public.post_items AS pi
+  INNER JOIN public.post_groups AS pg
+    ON pg.id = pi.post_group_id
+  WHERE pi.id = p_post_item_id
+    AND pg.workspace_id = p_workspace_id
+  FOR UPDATE OF pi;
+
+  IF NOT FOUND
+    OR v_status <> 'publishing'
+    OR v_claim_attempt_id IS DISTINCT FROM p_attempt_id
+  THEN
+    RETURN;
+  END IF;
+
+  UPDATE public.post_items AS pi
+  SET
+    status = p_status,
+    platform_post_id = CASE
+      WHEN p_status = 'published' THEN p_platform_post_id
+      ELSE NULL
+    END,
+    platform_url = CASE
+      WHEN p_status = 'published' THEN p_platform_url
+      ELSE NULL
+    END,
+    published_at = CASE
+      WHEN p_status = 'published' THEN p_published_at
+      ELSE NULL
+    END,
+    error_message = CASE
+      WHEN p_status = 'failed' THEN COALESCE(p_error_message, 'Unknown publish error')
+      ELSE NULL
+    END
+  WHERE pi.id = p_post_item_id
+    AND pi.publish_claim_attempt_id = p_attempt_id
+    AND pi.status = 'publishing'
+  RETURNING pi.id, pi.status, pi.platform_post_id
+  INTO post_item_id, status, platform_post_id;
+
+  IF FOUND THEN
+    RETURN NEXT;
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION finalize_post_item_claim(
+  UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION finalize_post_item_claim(
+  UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ
+) TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- Deferred to migration 022

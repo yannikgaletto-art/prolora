@@ -245,6 +245,12 @@ const MIGRATION_PENDING = new ApiError(
   'migration_pending'
 );
 
+const WRITER_INTEGRITY_MIGRATION_PENDING = new ApiError(
+  503,
+  'Writer approval integrity is not set up yet — apply supabase/migrations/020_writer_integrity.sql.',
+  'migration_pending'
+);
+
 /** Damit Aufrufer den 503 wiederverwenden können, ohne ihn nachzubauen. */
 export function pipelineMigrationPending(): ApiError {
   return MIGRATION_PENDING;
@@ -384,19 +390,23 @@ export interface TransitionPatch {
   scheduledAt?: string | null;
 }
 
-const ATOMIC_PATCH_METADATA_KEY = '__content_item_patch';
-
 function isMissingFunctionError(error: { code?: string | null; message?: string | null }): boolean {
-  return (
-    error.code === '42883' ||
-    error.code === 'PGRST202' ||
-    Boolean(
-      error.message &&
-        /(?:could not find|does not exist|schema cache).*(?:function|transition_content_item_atomic)/i.test(
-          error.message
-        )
-    )
-  );
+  const message = error.message ?? '';
+  if (!message.includes('transition_content_item_atomic')) return false;
+  if (error.code === '42883') return /function[\s\S]*does not exist/i.test(message);
+  if (error.code === 'PGRST202') return /could not find[\s\S]*function/i.test(message);
+  return false;
+}
+
+function assertNoReservedMetadata(metadata: Record<string, unknown> | undefined): void {
+  const reservedKey = Object.keys(metadata ?? {}).find((key) => key.startsWith('__'));
+  if (reservedKey) {
+    throw new ApiError(
+      400,
+      `Transition metadata key "${reservedKey}" is reserved.`,
+      'invalid_transition_metadata'
+    );
+  }
 }
 
 function serializeTransitionPatch(patch: TransitionPatch): Record<string, unknown> {
@@ -471,6 +481,7 @@ export async function transitionContentItem(
   intent: TransitionIntent,
   patch: TransitionPatch = {}
 ): Promise<ContentItemRow> {
+  assertNoReservedMetadata(intent.metadata);
   const current = await getContentItem(workspaceId, itemId);
   if (!current) {
     throw new ApiError(404, 'Content item not found.', 'not_found');
@@ -479,13 +490,6 @@ export async function transitionContentItem(
 
   const db = getServiceDb();
   const serializedPatch = serializeTransitionPatch(patch);
-  const metadata =
-    Object.keys(serializedPatch).length > 0
-      ? {
-          ...(intent.metadata ?? {}),
-          [ATOMIC_PATCH_METADATA_KEY]: serializedPatch,
-        }
-      : (intent.metadata ?? {});
   const { data, error } = await db.rpc('transition_content_item_atomic', {
     p_workspace_id: workspaceId,
     p_item_id: itemId,
@@ -494,12 +498,14 @@ export async function transitionContentItem(
     p_reason: intent.reason,
     p_actor: intent.actor,
     p_actor_id: intent.actorId ?? null,
-    p_metadata: metadata,
+    p_metadata: intent.metadata ?? {},
+    p_patch: serializedPatch,
     p_scheduled_at: patch.scheduledAt ?? null,
   });
 
   if (error) {
     if (isMissingFunctionError(error)) {
+      if (intent.to === 'awaiting_approval') throw WRITER_INTEGRITY_MIGRATION_PENDING;
       return transitionContentItemLegacy(workspaceId, itemId, current, intent, patch);
     }
     if (isMissingSchemaError(error.code)) throw MIGRATION_PENDING;

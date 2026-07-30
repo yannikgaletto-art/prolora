@@ -22,7 +22,11 @@ vi.mock('@/lib/inngest/client', () => ({
   },
 }));
 
-import { claimPostItemForPublishing } from '@/lib/inngest/functions/publish-post';
+import {
+  claimPostItemForPublishing,
+  executeClaimedPostItem,
+  finalizePostItemClaim,
+} from '@/lib/inngest/functions/publish-post';
 
 describe('atomic post item claim', () => {
   beforeEach(() => {
@@ -73,6 +77,147 @@ describe('atomic post item claim', () => {
     ).resolves.toBe(false);
   });
 
+  test('does not let the same attempt win a second time', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({
+        data: [
+          {
+            post_item_id: 'post-1',
+            claim_attempt_id: '22222222-2222-4222-8222-222222222222',
+            claim_lease_until: '2026-07-30T14:00:00.000Z',
+          },
+        ],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+
+    const input = {
+      workspaceId: 'workspace-1',
+      postItemId: 'post-1',
+      attemptId: '22222222-2222-4222-8222-222222222222',
+      leaseUntil: '2026-07-30T14:00:00.000Z',
+    };
+    await expect(claimPostItemForPublishing(input)).resolves.toBe(true);
+    await expect(claimPostItemForPublishing(input)).resolves.toBe(false);
+  });
+
+  test('executes the external adapter at most once when the same step retries', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({
+        data: [
+          {
+            post_item_id: 'post-1',
+            claim_attempt_id: '99999999-9999-4999-8999-999999999999',
+            claim_lease_until: '2026-07-30T14:00:00.000Z',
+          },
+        ],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+    const adapterCall = vi.fn().mockResolvedValue({ platformPostId: 'platform-1' });
+    const input = {
+      workspaceId: 'workspace-1',
+      postItemId: 'post-1',
+      attemptId: '99999999-9999-4999-8999-999999999999',
+      leaseUntil: '2026-07-30T14:00:00.000Z',
+    };
+
+    await expect(executeClaimedPostItem(input, adapterCall)).resolves.toEqual({
+      claimed: true,
+      result: { platformPostId: 'platform-1' },
+    });
+    await expect(executeClaimedPostItem(input, adapterCall)).resolves.toEqual({
+      claimed: false,
+    });
+    expect(adapterCall).toHaveBeenCalledOnce();
+  });
+
+  test('does not repeat an adapter after an unknown external outcome', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({
+        data: [
+          {
+            post_item_id: 'post-1',
+            claim_attempt_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            claim_lease_until: '2026-07-30T14:00:00.000Z',
+          },
+        ],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+    const networkOutcomeUnknown = vi.fn().mockRejectedValue(new Error('connection reset'));
+    const input = {
+      workspaceId: 'workspace-1',
+      postItemId: 'post-1',
+      attemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      leaseUntil: '2026-07-30T14:00:00.000Z',
+    };
+
+    await expect(executeClaimedPostItem(input, networkOutcomeUnknown)).rejects.toThrow(
+      /connection reset/
+    );
+    await expect(executeClaimedPostItem(input, networkOutcomeUnknown)).resolves.toEqual({
+      claimed: false,
+    });
+    expect(networkOutcomeUnknown).toHaveBeenCalledOnce();
+  });
+
+  test('allows only one of two concurrent attempts to reach an adapter', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({
+        data: [
+          {
+            post_item_id: 'post-1',
+            claim_attempt_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            claim_lease_until: '2026-07-30T14:00:00.000Z',
+          },
+        ],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+    const winningAdapter = vi.fn().mockResolvedValue('published');
+    const losingAdapter = vi.fn().mockResolvedValue('must not run');
+
+    const [first, second] = await Promise.all([
+      executeClaimedPostItem(
+        {
+          workspaceId: 'workspace-1',
+          postItemId: 'post-1',
+          attemptId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          leaseUntil: '2026-07-30T14:00:00.000Z',
+        },
+        winningAdapter
+      ),
+      executeClaimedPostItem(
+        {
+          workspaceId: 'workspace-1',
+          postItemId: 'post-1',
+          attemptId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          leaseUntil: '2026-07-30T14:00:00.000Z',
+        },
+        losingAdapter
+      ),
+    ]);
+
+    expect(first).toEqual({ claimed: true, result: 'published' });
+    expect(second).toEqual({ claimed: false });
+    expect(winningAdapter).toHaveBeenCalledOnce();
+    expect(losingAdapter).not.toHaveBeenCalled();
+  });
+
+  test('does not treat an expired lease as an automatic takeover right', async () => {
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+
+    await expect(
+      claimPostItemForPublishing({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: '55555555-5555-4555-8555-555555555555',
+        leaseUntil: '2026-07-31T14:00:00.000Z',
+      })
+    ).resolves.toBe(false);
+  });
+
   test('uses a returning conditional update only when the claim RPC is missing', async () => {
     mocks.rpc.mockResolvedValue({
       data: null,
@@ -115,5 +260,74 @@ describe('atomic post item claim', () => {
       })
     ).rejects.toThrow(/permission denied/);
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  test('does not treat a bare 42883 for another function as a missing claim RPC', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '42883', message: 'function public.some_other_function() does not exist' },
+    });
+
+    await expect(
+      claimPostItemForPublishing({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: '66666666-6666-4666-8666-666666666666',
+        leaseUntil: '2026-07-31T14:00:00.000Z',
+      })
+    ).rejects.toThrow(/some_other_function/);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  test('finalizes only through the attempt-fenced RPC', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ post_item_id: 'post-1', status: 'published', platform_post_id: 'platform-1' }],
+      error: null,
+    });
+
+    await expect(
+      finalizePostItemClaim({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: '77777777-7777-4777-8777-777777777777',
+        status: 'published',
+        platformPostId: 'platform-1',
+        platformUrl: 'https://example.test/posts/platform-1',
+        errorMessage: null,
+        publishedAt: '2026-07-30T15:00:00.000Z',
+      })
+    ).resolves.toEqual({
+      post_item_id: 'post-1',
+      status: 'published',
+      platform_post_id: 'platform-1',
+    });
+
+    expect(mocks.rpc).toHaveBeenCalledWith('finalize_post_item_claim', {
+      p_workspace_id: 'workspace-1',
+      p_post_item_id: 'post-1',
+      p_attempt_id: '77777777-7777-4777-8777-777777777777',
+      p_status: 'published',
+      p_platform_post_id: 'platform-1',
+      p_platform_url: 'https://example.test/posts/platform-1',
+      p_error_message: null,
+      p_published_at: '2026-07-30T15:00:00.000Z',
+    });
+  });
+
+  test('rejects stale finalization after another attempt owns the fence', async () => {
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+
+    await expect(
+      finalizePostItemClaim({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: '88888888-8888-4888-8888-888888888888',
+        status: 'failed',
+        platformPostId: null,
+        platformUrl: null,
+        errorMessage: 'platform rejected the post',
+        publishedAt: null,
+      })
+    ).rejects.toThrow(/claim fence/i);
   });
 });

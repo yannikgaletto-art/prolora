@@ -37,20 +37,15 @@ interface ClaimPostItemInput {
   leaseUntil: string;
 }
 
-function isMissingClaimFunction(error: {
-  code?: string | null;
-  message?: string | null;
-}): boolean {
-  return (
-    error.code === '42883' ||
-    error.code === 'PGRST202' ||
-    Boolean(
-      error.message &&
-        /(?:could not find|does not exist|schema cache).*(?:function|claim_post_item)/i.test(
-          error.message
-        )
-    )
-  );
+function isMissingNamedRpc(
+  error: { code?: string | null; message?: string | null },
+  rpcName: string
+): boolean {
+  const message = error.message ?? '';
+  if (!message.includes(rpcName)) return false;
+  if (error.code === '42883') return /function[\s\S]*does not exist/i.test(message);
+  if (error.code === 'PGRST202') return /could not find[\s\S]*function/i.test(message);
+  return false;
 }
 
 /**
@@ -75,7 +70,7 @@ export async function claimPostItemForPublishing(input: ClaimPostItemInput): Pro
     return rows.length === 1;
   }
 
-  if (!isMissingClaimFunction(error)) {
+  if (!isMissingNamedRpc(error, 'claim_post_item')) {
     throw new Error(`[publish-post] atomic claim failed: ${error.message}`);
   }
 
@@ -105,6 +100,110 @@ export async function claimPostItemForPublishing(input: ClaimPostItemInput): Pro
   return Boolean(claimed);
 }
 
+export async function executeClaimedPostItem<T>(
+  input: ClaimPostItemInput,
+  execute: () => Promise<T>
+): Promise<{ claimed: false } | { claimed: true; result: T }> {
+  const claimed = await claimPostItemForPublishing(input);
+  if (!claimed) return { claimed: false };
+  return { claimed: true, result: await execute() };
+}
+
+interface FinalizePostItemClaimInput {
+  workspaceId: string;
+  postItemId: string;
+  attemptId: string;
+  status: 'published' | 'failed';
+  platformPostId: string | null;
+  platformUrl: string | null;
+  errorMessage: string | null;
+  publishedAt: string | null;
+}
+
+interface FinalizedPostItemClaim {
+  post_item_id: string;
+  status: 'published' | 'failed';
+  platform_post_id: string | null;
+}
+
+export async function finalizePostItemClaim(
+  input: FinalizePostItemClaimInput
+): Promise<FinalizedPostItemClaim> {
+  const db = getServiceDb();
+  const { data, error } = await db.rpc('finalize_post_item_claim', {
+    p_workspace_id: input.workspaceId,
+    p_post_item_id: input.postItemId,
+    p_attempt_id: input.attemptId,
+    p_status: input.status,
+    p_platform_post_id: input.platformPostId,
+    p_platform_url: input.platformUrl,
+    p_error_message: input.errorMessage,
+    p_published_at: input.publishedAt,
+  });
+
+  if (!error) {
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (rows.length !== 1) {
+      throw new Error('[publish-post] claim fence rejected finalization');
+    }
+    return rows[0] as FinalizedPostItemClaim;
+  }
+
+  if (!isMissingNamedRpc(error, 'finalize_post_item_claim')) {
+    throw new Error(`[publish-post] atomic finalization failed: ${error.message}`);
+  }
+
+  // Migration-pending compatibility: the one-shot legacy claim never permits
+  // automatic takeover, and finalization still requires status=publishing.
+  const { data: scopedItem, error: scopeError } = await db
+    .from('post_items')
+    .select('id, post_groups!inner(workspace_id)')
+    .eq('post_groups.workspace_id', input.workspaceId)
+    .eq('id', input.postItemId)
+    .maybeSingle<{ id: string }>();
+  if (scopeError) {
+    throw new Error(`[publish-post] legacy finalization scope check failed: ${scopeError.message}`);
+  }
+  if (!scopedItem) {
+    throw new Error('[publish-post] claim fence rejected finalization');
+  }
+
+  const update =
+    input.status === 'published'
+      ? {
+          status: 'published',
+          platform_post_id: input.platformPostId,
+          platform_url: input.platformUrl,
+          published_at: input.publishedAt,
+          error_message: null,
+        }
+      : {
+          status: 'failed',
+          platform_post_id: null,
+          platform_url: null,
+          published_at: null,
+          error_message: input.errorMessage ?? 'Unknown publish error',
+        };
+  const { data: finalized, error: legacyError } = await db
+    .from('post_items')
+    .update(update)
+    .eq('id', input.postItemId)
+    .eq('status', 'publishing')
+    .select('id, status, platform_post_id')
+    .maybeSingle<{ id: string; status: 'published' | 'failed'; platform_post_id: string | null }>();
+  if (legacyError) {
+    throw new Error(`[publish-post] legacy finalization failed: ${legacyError.message}`);
+  }
+  if (!finalized) {
+    throw new Error('[publish-post] claim fence rejected finalization');
+  }
+  return {
+    post_item_id: finalized.id,
+    status: finalized.status,
+    platform_post_id: finalized.platform_post_id,
+  };
+}
+
 export const publishPost = inngest.createFunction(
   {
     id: 'publish-post',
@@ -115,7 +214,8 @@ export const publishPost = inngest.createFunction(
   async ({ event, step }) => {
     const { postItemId, workspaceId } = event.data;
 
-    // 1. Load + claim: queued/scheduled -> publishing (monotone transition).
+    // 1. Load immutable inputs. The one-shot claim happens inside the same
+    // Inngest step callback as the external adapter call below.
     const prepared = await step.run('load-post-item', async () => {
       const db = getServiceDb();
       const { data: item, error } = await db
@@ -160,15 +260,6 @@ export const publishPost = inngest.createFunction(
 
       const attemptId = randomUUID();
       const leaseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const claimed = await claimPostItemForPublishing({
-        workspaceId,
-        postItemId: item.id,
-        attemptId,
-        leaseUntil,
-      });
-      if (!claimed) {
-        return { skip: true as const, reason: 'item is already claimed by another publish attempt' };
-      }
 
       // Rate-limit budget from the last API call (Invariante 5): if
       // exhausted, wait for the reset silently — never a user-facing error.
@@ -185,6 +276,8 @@ export const publishPost = inngest.createFunction(
         item,
         group,
         connection,
+        attemptId,
+        leaseUntil,
         waitUntil,
       };
     });
@@ -197,57 +290,56 @@ export const publishPost = inngest.createFunction(
       await step.sleepUntil('wait-for-rate-limit-budget', new Date(prepared.waitUntil));
     }
 
-    // 2. Publish (attempt 1, with in-step AUTH_EXPIRED refresh+retry).
-    let attempt = await step.run('publish-to-platform', () =>
-      publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
+    // 2. The claim and adapter execution share one retried step callback.
+    // If the callback reruns after an unknown network outcome, the durable
+    // claim is already consumed and the adapter is not called a second time.
+    const execution = await step.run('publish-to-platform', () =>
+      executeClaimedPostItem(
+        {
+          workspaceId,
+          postItemId: prepared.item.id,
+          attemptId: prepared.attemptId,
+          leaseUntil: prepared.leaseUntil,
+        },
+        () => publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
+      )
     );
-
-    // RATE_LIMITED from the platform: sleep until reset, then ONE more try.
-    if (attempt.outcome === 'rate_limited') {
-      const retryAt = attempt.retryAtIso
-        ? new Date(attempt.retryAtIso)
-        : new Date(Date.now() + 15 * 60 * 1000);
-      await step.sleepUntil('wait-for-rate-limit-reset', retryAt);
-      attempt = await step.run('publish-after-rate-limit', () =>
-        publishAttempt(prepared.item, prepared.group, prepared.connection, workspaceId)
-      );
-      if (attempt.outcome === 'rate_limited') {
-        attempt = {
-          outcome: 'failed',
-          errorMessage: 'Rate limit still exhausted after waiting for reset',
-        };
-      }
+    if (!execution.claimed) {
+      return {
+        published: false,
+        skipped: true,
+        reason: 'item is already claimed or has an unresolved external publish attempt',
+      };
     }
+    const attempt: PublishAttemptResult =
+      execution.result.outcome === 'rate_limited'
+        ? {
+            outcome: 'failed',
+            errorMessage:
+              execution.result.errorMessage ??
+              'Rate limited before publishing — retry manually after the reset.',
+            rateLimit: execution.result.rateLimit,
+          }
+        : execution.result;
 
     // 3. Finalize status (write -> read-back -> verify).
     await step.run('finalize-status', async () => {
       const db = getServiceDb();
       const isPublished = attempt.outcome === 'published';
-      const update: Record<string, unknown> = isPublished
-        ? {
-            status: 'published',
-            platform_post_id: attempt.platformPostId,
-            platform_url: attempt.platformUrl,
-            published_at: new Date().toISOString(),
-            error_message: null,
-          }
-        : {
-            status: 'failed',
-            error_message: attempt.errorMessage ?? 'Unknown publish error',
-          };
-
-      const { error } = await db.from('post_items').update(update).eq('id', prepared.item.id);
-      if (error) throw new Error(`[publish-post] status write failed: ${error.message}`);
-
-      const { data: verify, error: verifyError } = await db
-        .from('post_items')
-        .select('status, platform_post_id')
-        .eq('id', prepared.item.id)
-        .single<{ status: string; platform_post_id: string | null }>();
+      const publishedAt = isPublished ? new Date().toISOString() : null;
+      const finalized = await finalizePostItemClaim({
+        workspaceId,
+        postItemId: prepared.item.id,
+        attemptId: prepared.attemptId,
+        status: isPublished ? 'published' : 'failed',
+        platformPostId: isPublished ? (attempt.platformPostId ?? null) : null,
+        platformUrl: isPublished ? (attempt.platformUrl ?? null) : null,
+        errorMessage: isPublished ? null : (attempt.errorMessage ?? 'Unknown publish error'),
+        publishedAt,
+      });
       if (
-        verifyError ||
-        verify?.status !== (isPublished ? 'published' : 'failed') ||
-        (isPublished && !verify.platform_post_id)
+        finalized.status !== (isPublished ? 'published' : 'failed') ||
+        (isPublished && !finalized.platform_post_id)
       ) {
         throw new Error('[publish-post] status verification failed');
       }

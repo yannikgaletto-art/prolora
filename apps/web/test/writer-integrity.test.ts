@@ -25,7 +25,11 @@ import {
   transitionContentItem,
   type ContentItemRow,
 } from '@/lib/pipeline/state';
-import { type PostItemRow } from '@/lib/db';
+import {
+  POST_ITEM_ROW_COLUMNS,
+  POST_ITEM_WRITER_INTEGRITY_COLUMNS,
+  type PostItemRow,
+} from '@/lib/db';
 
 const currentItem: ContentItemRow = {
   id: 'item-1',
@@ -66,7 +70,7 @@ function readCurrentItemChain() {
 
 function legacyUpdateChain() {
   const result = Promise.resolve({
-    data: { ...currentItem, state: 'awaiting_approval' },
+    data: { ...currentItem, state: 'scheduled' },
     error: null,
   });
   const chain: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -125,11 +129,12 @@ describe('writer approval state', () => {
       p_actor: 'system',
       p_actor_id: null,
       p_metadata: { review_id: 'review-1' },
+      p_patch: {},
       p_scheduled_at: null,
     });
   });
 
-  test('uses the scoped legacy transition only when the atomic RPC is missing', async () => {
+  test('uses the scoped legacy transition only when the named atomic RPC is missing', async () => {
     const readChain = readCurrentItemChain();
     const updateChain = legacyUpdateChain();
     const insertChain = transitionInsertChain();
@@ -152,13 +157,81 @@ describe('writer approval state', () => {
 
     await expect(
       transitionContentItem('workspace-1', 'item-1', {
+        to: 'scheduled',
+        reason: 'Legacy deployment keeps the existing scheduling flow available',
+        actor: 'system',
+      })
+    ).resolves.toMatchObject({ state: 'scheduled' });
+
+    expect(mocks.from).toHaveBeenCalledWith('content_item_transitions');
+  });
+
+  test('reports migration_pending instead of falling back for awaiting_approval', async () => {
+    mocks.from.mockReturnValue(readCurrentItemChain());
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function public.transition_content_item_atomic',
+      },
+    });
+
+    await expect(
+      transitionContentItem('workspace-1', 'item-1', {
         to: 'awaiting_approval',
         reason: 'Writer bundle is ready for review',
         actor: 'system',
       })
-    ).resolves.toMatchObject({ state: 'awaiting_approval' });
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'migration_pending'
+    );
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+  });
 
-    expect(mocks.from).toHaveBeenCalledWith('content_item_transitions');
+  test('does not fall back when 42883 names a different missing function', async () => {
+    mocks.from.mockReturnValue(readCurrentItemChain());
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: '42883',
+        message: 'function public.some_other_function(uuid) does not exist',
+      },
+    });
+
+    await expect(
+      transitionContentItem('workspace-1', 'item-1', {
+        to: 'scheduled',
+        reason: 'Schedule after gate',
+        actor: 'system',
+      })
+    ).rejects.toThrow(/some_other_function/);
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+  });
+
+  test('rejects caller-controlled reserved metadata before touching the RPC', async () => {
+    mocks.from.mockReturnValue(readCurrentItemChain());
+
+    await expect(
+      transitionContentItem('workspace-1', 'item-1', {
+        to: 'awaiting_approval',
+        reason: 'Writer bundle is ready for review',
+        actor: 'system',
+        metadata: {
+          __content_item_patch: {
+            post_group_id: '00000000-0000-0000-0000-000000000001',
+          },
+        },
+      })
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'invalid_transition_metadata'
+    );
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 });
 
@@ -176,7 +249,7 @@ describe('migration 020 writer integrity contract', () => {
     );
   });
 
-  test('keeps the manual row type aligned with the claim schema', () => {
+  test('makes migration-optional PostItemRow omissions explicit', () => {
     const typedRow: Pick<
       PostItemRow,
       | 'content_item_variant_id'
@@ -191,6 +264,15 @@ describe('migration 020 writer integrity contract', () => {
     };
 
     expect(typedRow).toBeDefined();
+    expect(POST_ITEM_WRITER_INTEGRITY_COLUMNS).toEqual([
+      'content_item_variant_id',
+      'publish_claim_attempt_id',
+      'publish_claimed_at',
+      'publish_claim_lease_until',
+    ]);
+    for (const optionalColumn of POST_ITEM_WRITER_INTEGRITY_COLUMNS) {
+      expect(POST_ITEM_ROW_COLUMNS.split(', ')).not.toContain(optionalColumn);
+    }
   });
 
   test('makes transitions atomic, workspace-scoped and row-locked', () => {
@@ -204,6 +286,8 @@ describe('migration 020 writer integrity contract', () => {
     expect(transitionFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
     expect(transitionFunction).toMatch(/FOR UPDATE/);
     expect(transitionFunction).toMatch(/INSERT INTO (?:public\.)?content_item_transitions/);
+    expect(transitionFunction).toMatch(/p_patch JSONB/);
+    expect(transitionFunction).not.toMatch(/p_metadata\s*->/);
   });
 
   test('claims publishing with an attempt lease and exactly-one-winner row lock', () => {
@@ -219,6 +303,21 @@ describe('migration 020 writer integrity contract', () => {
     expect(claimFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
     expect(claimFunction).toMatch(/FOR UPDATE/);
     expect(claimFunction).toMatch(/RETURN NEXT/);
+    expect(claimFunction).not.toMatch(/v_claim_lease_until\s*<=\s*now\(\)/);
+    expect(claimFunction).not.toMatch(/v_claim_attempt_id\s*=\s*p_attempt_id/);
+  });
+
+  test('fences finalization by workspace, item, attempt and publishing status', () => {
+    const finalizeFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION finalize_post_item_claim[\s\S]*?\$\$;/
+    )?.[0];
+
+    expect(finalizeFunction).toBeDefined();
+    expect(finalizeFunction).toMatch(/SECURITY DEFINER/);
+    expect(finalizeFunction).toMatch(/SET search_path\s*=\s*public/);
+    expect(finalizeFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
+    expect(finalizeFunction).toMatch(/publish_claim_attempt_id\s*=\s*p_attempt_id/);
+    expect(finalizeFunction).toMatch(/status\s*=\s*'publishing'/);
   });
 
   test('does not define writer bundle materialization before writer tables exist', () => {
