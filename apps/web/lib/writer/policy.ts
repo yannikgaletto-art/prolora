@@ -265,29 +265,30 @@ export async function updateWriterPolicy(
   );
 
   const db = getServiceDb();
-  const { data, error } = await db
-    .from('workspace_writer_policies')
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        enabled: next.enabled,
-        mode: next.mode,
-        allowed_connection_ids: next.allowedConnectionIds,
-        daily_post_cap: next.dailyPostCap,
-        weekly_credit_cap: next.weeklyCreditCap,
-        minimum_signal_strength: next.minimumSignalStrength,
-        content_mix: next.contentMix,
-        quiet_days: next.quietDays,
-        timezone: next.timezone,
-        dna_profile_id: next.dnaProfileId,
-        policy_version: next.policyVersion,
-        updated_by: updatedBy,
-      },
-      { onConflict: 'workspace_id' }
-    )
-    .select(WRITER_POLICY_COLUMNS)
-    .single<WriterPolicyRow>();
+  const { data, error } = await db.rpc('update_writer_policy_atomic', {
+    p_workspace_id: workspaceId,
+    p_expected_version: current.policyVersion,
+    p_enabled: next.enabled,
+    p_allowed_connection_ids: next.allowedConnectionIds,
+    p_daily_post_cap: next.dailyPostCap,
+    p_weekly_credit_cap: next.weeklyCreditCap,
+    p_minimum_signal_strength: next.minimumSignalStrength,
+    p_content_mix: next.contentMix,
+    p_quiet_days: next.quietDays,
+    p_timezone: next.timezone,
+    p_dna_profile_id: next.dnaProfileId,
+    p_updated_by: updatedBy,
+  });
 
-  if (error || !data) throwWriterDbError(error, 'policy update');
-  return policyFromRow(data);
+  if (error?.code === '40001') {
+    throw new ApiError(
+      409,
+      'The Writer policy changed concurrently. Reload it and try again.',
+      'writer_policy_changed'
+    );
+  }
+  if (error) throwWriterDbError(error, 'policy update');
+  const row = (Array.isArray(data) ? data[0] : data) as WriterPolicyRow | null;
+  if (!row) throwWriterDbError(null, 'policy update');
+  return policyFromRow(row);
 }

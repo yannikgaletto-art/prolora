@@ -81,9 +81,24 @@ describe('migration 022 policy contract', () => {
     expect(migration).toMatch(
       /CREATE POLICY "workspace_writer_policies_read"[\s\S]*?user_workspace_ids\(\)/
     );
-    expect(migration).toMatch(
-      /CREATE POLICY "workspace_writer_policies_write"[\s\S]*?user_workspace_ids\(\)/
-    );
+    expect(migration).not.toMatch(/CREATE POLICY "workspace_writer_policies_write"/);
+    expect(migration).not.toMatch(/CREATE POLICY "workspace_writer_policies_update"/);
     expect(migration).not.toMatch(/workspace_writer_policies_delete/);
+  });
+
+  test('mutates versions atomically through a service-only RPC', () => {
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION update_writer_policy_atomic[\s\S]*?\n\$\$;/
+    )?.[0];
+    expect(fn).toBeDefined();
+    expect(fn).toMatch(/p_expected_version INTEGER/);
+    expect(fn).toMatch(/FOR UPDATE/);
+    expect(fn).toMatch(/policy_version = p_expected_version \+ 1/);
+    expect(migration).toMatch(
+      /REVOKE ALL ON FUNCTION update_writer_policy_atomic[\s\S]*?authenticated/
+    );
+    expect(migration).toMatch(
+      /GRANT EXECUTE ON FUNCTION update_writer_policy_atomic[\s\S]*?service_role/
+    );
   });
 });

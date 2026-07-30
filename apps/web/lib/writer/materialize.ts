@@ -4,7 +4,6 @@ import { WRITER_MIGRATION_PENDING, type WriterWorkspaceRole } from './policy';
 import {
   getWriterReview,
   loadWriterApprovalContext,
-  recordWriterApprover,
   validateWriterApproval,
 } from './reviews';
 
@@ -44,15 +43,26 @@ function materializeConflict(message: string | null | undefined): ApiError {
 export async function materializeWriterBundle(
   workspaceId: string,
   reviewId: string,
-  snapshotHash: string
+  snapshotHash: string,
+  approverId: string,
+  approverRole: WriterWorkspaceRole
 ): Promise<MaterializedWriterBundle> {
   const { data, error } = await getServiceDb().rpc('materialize_writer_bundle', {
     p_workspace_id: workspaceId,
     p_review_id: reviewId,
     p_snapshot_hash: snapshotHash,
+    p_approver_id: approverId,
+    p_approver_role: approverRole,
   });
   if (error) {
     if (isMissingMaterializeFunction(error)) throw WRITER_MIGRATION_PENDING;
+    if (error.code === '42501') {
+      throw new ApiError(
+        403,
+        'Your Writer approval role changed. Reload and try again.',
+        'approval_role_required'
+      );
+    }
     if (['22023', '40001', 'P0002'].includes(error.code ?? '')) {
       throw materializeConflict(error.message);
     }
@@ -103,7 +113,13 @@ export async function approveWriterReview(
         'approval_role_required'
       );
     }
-    return materializeWriterBundle(workspaceId, reviewId, suppliedSnapshotHash);
+    return materializeWriterBundle(
+      workspaceId,
+      reviewId,
+      suppliedSnapshotHash,
+      userId,
+      role
+    );
   }
 
   const context = await loadWriterApprovalContext(workspaceId, review);
@@ -114,6 +130,11 @@ export async function approveWriterReview(
     connections: context.connections,
     proofs: context.proofs,
   });
-  await recordWriterApprover(workspaceId, reviewId, review.snapshot_hash, userId);
-  return materializeWriterBundle(workspaceId, reviewId, review.snapshot_hash);
+  return materializeWriterBundle(
+    workspaceId,
+    reviewId,
+    review.snapshot_hash,
+    userId,
+    role
+  );
 }

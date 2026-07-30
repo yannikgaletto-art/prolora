@@ -1,6 +1,6 @@
 import { ApiError } from '@/lib/api/http';
 import { getServiceDb, isMissingSchemaError } from '@/lib/db';
-import { hashCanonicalJson } from './hash';
+import { hashCanonicalJson, sha256Hex } from './hash';
 import type { CanonicalJsonValue } from './types';
 import {
   WRITER_MIGRATION_PENDING,
@@ -59,6 +59,15 @@ export interface WriterReviewSnapshot {
       verifiedAt: string | null;
       contentHash: string;
     }>;
+    feedbackItems: Array<{
+      id: string;
+      contentHash: string;
+    }>;
+    references: Array<{
+      id: string;
+      contentHash: string;
+      verifiedAt: string | null;
+    }>;
     feedbackItemIds: string[];
     referenceIds: string[];
   };
@@ -68,12 +77,24 @@ export interface WriterReviewSnapshot {
   };
   versions: {
     prompt: string;
+    promptHash: string;
     gate: string;
     policy: number;
   };
 }
 
-export type WriterReviewSnapshotInput = WriterReviewSnapshot;
+export type WriterReviewSnapshotInput = Omit<
+  WriterReviewSnapshot,
+  'sources' | 'versions'
+> & {
+  sources: Omit<WriterReviewSnapshot['sources'], 'feedbackItems' | 'references'> & {
+    feedbackItems?: WriterReviewSnapshot['sources']['feedbackItems'];
+    references?: WriterReviewSnapshot['sources']['references'];
+  };
+  versions: Omit<WriterReviewSnapshot['versions'], 'promptHash'> & {
+    promptHash?: string;
+  };
+};
 
 export interface BuiltWriterReviewSnapshot {
   snapshot: WriterReviewSnapshot;
@@ -98,6 +119,7 @@ export interface WriterReviewBundleRow {
   policy_version: number;
   expires_at: string;
   approved_by: string | null;
+  approved_role: 'owner' | 'admin' | null;
   approved_at: string | null;
   rejected_by: string | null;
   rejected_at: string | null;
@@ -118,6 +140,7 @@ export interface WriterApprovalProof {
   id: string;
   consent_status: string;
   verified_at: string | null;
+  content: string;
 }
 
 export interface ValidateWriterApprovalInput {
@@ -145,6 +168,7 @@ export const WRITER_REVIEW_COLUMNS = [
   'policy_version',
   'expires_at',
   'approved_by',
+  'approved_role',
   'approved_at',
   'rejected_by',
   'rejected_at',
@@ -184,6 +208,12 @@ export function buildWriterReviewSnapshot(
     proofAssets: input.sources.proofAssets
       .map((proof) => ({ ...proof }))
       .sort((left, right) => left.id.localeCompare(right.id)),
+    feedbackItems: [...(input.sources.feedbackItems ?? [])].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    ),
+    references: [...(input.sources.references ?? [])].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    ),
     feedbackItemIds: sortedUnique(input.sources.feedbackItemIds),
     referenceIds: sortedUnique(input.sources.referenceIds),
   };
@@ -193,7 +223,10 @@ export function buildWriterReviewSnapshot(
     proposedSlot: { ...input.proposedSlot },
     sources,
     dna: { ...input.dna },
-    versions: { ...input.versions },
+    versions: {
+      ...input.versions,
+      promptHash: input.versions.promptHash ?? '',
+    },
   };
 
   return {
@@ -273,7 +306,8 @@ export function validateWriterApproval(input: ValidateWriterApprovalInput): void
       !expected ||
       !['not_required', 'granted'].includes(proof.consent_status) ||
       proof.consent_status !== expected.consentStatus ||
-      proof.verified_at !== expected.verifiedAt
+      proof.verified_at !== expected.verifiedAt ||
+      sha256Hex(proof.content) !== expected.contentHash
     ) {
       throw approvalContextChanged();
     }
@@ -321,12 +355,159 @@ export async function listWriterReviews(
   return data ?? [];
 }
 
+async function hydrateWriterReviewSnapshot(
+  workspaceId: string,
+  input: WriterReviewSnapshotInput
+): Promise<WriterReviewSnapshotInput> {
+  const db = getServiceDb();
+  const proofIds = sortedUnique(input.sources.proofAssets.map((proof) => proof.id));
+  const feedbackIds = sortedUnique(input.sources.feedbackItemIds);
+  const referenceIds = sortedUnique(input.sources.referenceIds);
+  const [dnaResult, proofResult, feedbackResult, referenceResult] = await Promise.all([
+    db
+      .from('content_dna_profiles')
+      .select('id, workspace_id, version, status, prompt_version, sample_set_hash')
+      .eq('workspace_id', workspaceId)
+      .eq('id', input.dna.profileId)
+      .maybeSingle<{
+        id: string;
+        workspace_id: string;
+        version: number;
+        status: string;
+        prompt_version: string;
+        sample_set_hash: string;
+      }>(),
+    proofIds.length === 0
+      ? Promise.resolve({
+          data: [] as Array<{
+            id: string;
+            consent_status: string;
+            verified_at: string | null;
+            content: string;
+          }>,
+          error: null,
+        })
+      : db
+          .from('proof_assets')
+          .select('id, consent_status, verified_at, content')
+          .eq('workspace_id', workspaceId)
+          .in('id', proofIds)
+          .returns<
+            Array<{
+              id: string;
+              consent_status: string;
+              verified_at: string | null;
+              content: string;
+            }>
+          >(),
+    feedbackIds.length === 0
+      ? Promise.resolve({
+          data: [] as Array<{ id: string; original_content: string }>,
+          error: null,
+        })
+      : db
+          .from('feedback_items')
+          .select('id, original_content')
+          .eq('workspace_id', workspaceId)
+          .in('id', feedbackIds)
+          .returns<Array<{ id: string; original_content: string }>>(),
+    referenceIds.length === 0
+      ? Promise.resolve({
+          data: [] as Array<{
+            id: string;
+            workspace_id: string | null;
+            reusable_pattern: string;
+            verified_at: string | null;
+          }>,
+          error: null,
+        })
+      : db
+          .from('content_references')
+          .select('id, workspace_id, reusable_pattern, verified_at')
+          .in('id', referenceIds)
+          .returns<
+            Array<{
+              id: string;
+              workspace_id: string | null;
+              reusable_pattern: string;
+              verified_at: string | null;
+            }>
+          >(),
+  ]);
+
+  if (dnaResult.error) throwReviewDbError(dnaResult.error, 'DNA snapshot');
+  if (proofResult.error) throwReviewDbError(proofResult.error, 'proof snapshot');
+  if (feedbackResult.error) throwReviewDbError(feedbackResult.error, 'feedback snapshot');
+  if (referenceResult.error) {
+    throwReviewDbError(referenceResult.error, 'reference snapshot');
+  }
+
+  const dna = dnaResult.data;
+  if (
+    !dna ||
+    dna.status !== 'active' ||
+    dna.version !== input.dna.version ||
+    dna.prompt_version !== input.versions.prompt
+  ) {
+    throw approvalContextChanged();
+  }
+  const proofs = proofResult.data ?? [];
+  const feedbackItems = feedbackResult.data ?? [];
+  const references = (referenceResult.data ?? []).filter(
+    (reference) =>
+      reference.workspace_id === null || reference.workspace_id === workspaceId
+  );
+  if (
+    proofs.length !== proofIds.length ||
+    feedbackItems.length !== feedbackIds.length ||
+    references.length !== referenceIds.length
+  ) {
+    throw approvalContextChanged();
+  }
+
+  return {
+    ...input,
+    sources: {
+      proofAssets: proofs.map((proof) => ({
+        id: proof.id,
+        consentStatus: proof.consent_status,
+        verifiedAt: proof.verified_at,
+        contentHash: sha256Hex(proof.content),
+      })),
+      feedbackItemIds: feedbackIds,
+      feedbackItems: feedbackItems.map((feedback) => ({
+        id: feedback.id,
+        contentHash: sha256Hex(feedback.original_content),
+      })),
+      referenceIds,
+      references: references.map((reference) => ({
+        id: reference.id,
+        contentHash: sha256Hex(reference.reusable_pattern),
+        verifiedAt: reference.verified_at,
+      })),
+    },
+    versions: {
+      ...input.versions,
+      promptHash: sha256Hex(
+        [
+          dna.id,
+          String(dna.version),
+          dna.prompt_version,
+          dna.sample_set_hash,
+        ].join(':')
+      ),
+    },
+  };
+}
+
 export async function createWriterReview(
   workspaceId: string,
   input: WriterReviewSnapshotInput,
   expiresAt: string
 ): Promise<WriterReviewBundleRow> {
-  const built = buildWriterReviewSnapshot(input);
+  const built = buildWriterReviewSnapshot(
+    await hydrateWriterReviewSnapshot(workspaceId, input)
+  );
   const { data, error } = await getServiceDb()
     .from('writer_review_bundles')
     .insert({
@@ -377,7 +558,7 @@ export async function loadWriterApprovalContext(
       ? Promise.resolve({ data: [] as WriterApprovalProof[], error: null })
       : db
           .from('proof_assets')
-          .select('id, consent_status, verified_at')
+          .select('id, consent_status, verified_at, content')
           .eq('workspace_id', workspaceId)
           .in('id', proofIds)
           .returns<WriterApprovalProof[]>(),
@@ -390,31 +571,6 @@ export async function loadWriterApprovalContext(
     connections: connectionResult.data ?? [],
     proofs: proofResult.data ?? [],
   };
-}
-
-export async function recordWriterApprover(
-  workspaceId: string,
-  reviewId: string,
-  snapshotHash: string,
-  userId: string
-): Promise<void> {
-  const { data, error } = await getServiceDb()
-    .from('writer_review_bundles')
-    .update({ approved_by: userId })
-    .eq('workspace_id', workspaceId)
-    .eq('id', reviewId)
-    .eq('status', 'pending')
-    .eq('snapshot_hash', snapshotHash)
-    .select('id')
-    .maybeSingle<{ id: string }>();
-  if (error) throwReviewDbError(error, 'approval fence');
-  if (!data) {
-    throw new ApiError(
-      409,
-      'This Writer review changed before approval.',
-      'stale_review'
-    );
-  }
 }
 
 export async function rejectWriterReview(

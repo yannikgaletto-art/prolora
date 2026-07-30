@@ -9,6 +9,7 @@ import {
   type WriterReviewBundleRow,
   type WriterReviewSnapshotInput,
 } from '@/lib/writer/reviews';
+import { sha256Hex } from '@/lib/writer/hash';
 
 const migration = readFileSync(
   resolve(process.cwd(), '../../supabase/migrations/022_writer_pilot.sql'),
@@ -78,11 +79,24 @@ const snapshotInput: WriterReviewSnapshotInput = {
         id: '44444444-4444-4444-8444-444444444444',
         consentStatus: 'granted',
         verifiedAt: '2026-07-29T12:00:00.000Z',
-        contentHash: 'e'.repeat(64),
+        contentHash: sha256Hex('Original proof content.'),
       },
     ],
     feedbackItemIds: ['55555555-5555-4555-8555-555555555555'],
-    referenceIds: [],
+    feedbackItems: [
+      {
+        id: '55555555-5555-4555-8555-555555555555',
+        contentHash: sha256Hex('Original feedback content.'),
+      },
+    ],
+    referenceIds: ['88888888-8888-4888-8888-888888888888'],
+    references: [
+      {
+        id: '88888888-8888-4888-8888-888888888888',
+        contentHash: sha256Hex('Original reusable pattern.'),
+        verifiedAt: '2026-07-28T12:00:00.000Z',
+      },
+    ],
   },
   dna: {
     profileId: '66666666-6666-4666-8666-666666666666',
@@ -90,6 +104,14 @@ const snapshotInput: WriterReviewSnapshotInput = {
   },
   versions: {
     prompt: 'writer-v1',
+    promptHash: sha256Hex(
+      [
+        '66666666-6666-4666-8666-666666666666',
+        '3',
+        'writer-v1',
+        'sample-set-hash',
+      ].join(':')
+    ),
     gate: 'gate-v1',
     policy: 2,
   },
@@ -113,6 +135,7 @@ function reviewRow(): WriterReviewBundleRow {
     policy_version: snapshotInput.versions.policy,
     expires_at: '2026-08-02T08:00:00.000Z',
     approved_by: null,
+    approved_role: null,
     approved_at: null,
     rejected_by: null,
     rejected_at: null,
@@ -152,9 +175,22 @@ describe('immutable Writer review snapshots', () => {
       media: [{ storageKey: 'writer/media.png', contentHash: 'f'.repeat(64) }],
     });
     expect(snapshot.sources.proofAssets[0]).toMatchObject({ consentStatus: 'granted' });
+    expect(snapshot.sources.feedbackItems[0]).toMatchObject({
+      id: '55555555-5555-4555-8555-555555555555',
+      contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(snapshot.sources.references[0]).toMatchObject({
+      id: '88888888-8888-4888-8888-888888888888',
+      verifiedAt: '2026-07-28T12:00:00.000Z',
+    });
     expect(snapshot.proposedSlot.timezone).toBe('Europe/Berlin');
     expect(snapshot.dna.version).toBe(3);
-    expect(snapshot.versions).toEqual({ prompt: 'writer-v1', gate: 'gate-v1', policy: 2 });
+    expect(snapshot.versions).toMatchObject({
+      prompt: 'writer-v1',
+      promptHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      gate: 'gate-v1',
+      policy: 2,
+    });
   });
 });
 
@@ -170,6 +206,7 @@ describe('Writer approval validation', () => {
     id: proof.id,
     consent_status: proof.consentStatus,
     verified_at: proof.verifiedAt,
+    content: 'Original proof content.',
   }));
 
   test.each(['owner', 'admin'] as const)('allows %s approval', (role) => {
@@ -252,6 +289,21 @@ describe('Writer approval validation', () => {
       expect.objectContaining({ status: 409, code: 'approval_context_changed' }) as ApiError
     );
   });
+
+  test('rejects proof content changed after the immutable review was created', () => {
+    const review = reviewRow();
+    expect(() =>
+      validateWriterApproval({
+        review,
+        suppliedSnapshotHash: review.snapshot_hash,
+        role: 'owner',
+        connections,
+        proofs: [{ ...proofs[0], content: 'Changed proof content.' }],
+      })
+    ).toThrowError(
+      expect.objectContaining({ status: 409, code: 'approval_context_changed' }) as ApiError
+    );
+  });
 });
 
 describe('migration 022 review and materialization contract', () => {
@@ -278,5 +330,49 @@ describe('migration 022 review and materialization contract', () => {
     expect(fn).toMatch(/content_item_variant_id/);
     expect(fn).toMatch(/consent_status NOT IN \('not_required', 'granted'\)/);
     expect(fn).toMatch(/RETURN NEXT/);
+  });
+
+  test('revalidates immutable DNA, prompt, proof, provenance and media hashes', () => {
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION materialize_writer_bundle[\s\S]*?\n\$\$;/
+    )?.[0];
+    expect(fn).toMatch(/content_dna_profiles/);
+    expect(fn).toMatch(/dna\.status = 'active'/);
+    expect(fn).toMatch(/dna\.version = v_review\.dna_version/);
+    expect(fn).toMatch(/promptHash/);
+    expect(fn).toMatch(/digest\(proof\.content, 'sha256'\)/);
+    expect(fn).toMatch(/proof\.verified_at IS DISTINCT FROM[\s\S]*?verifiedAt/);
+    expect(fn).toMatch(/feedbackItems/);
+    expect(fn).toMatch(/references/);
+    expect(fn).toMatch(/contentHash/);
+    expect(fn).toMatch(/variant\.media IS NOT DISTINCT FROM/);
+  });
+
+  test('enforces pause, cap, quiet day and destination slot collision under the policy lock', () => {
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION materialize_writer_bundle[\s\S]*?\n\$\$;/
+    )?.[0];
+    expect(fn).toMatch(/workspace_writer_policies[\s\S]*?FOR UPDATE/);
+    expect(fn).toMatch(/v_policy\.enabled IS NOT TRUE/);
+    expect(fn).toMatch(/daily_post_cap/);
+    expect(fn).toMatch(/quiet_days/);
+    expect(fn).toMatch(/Writer destination slot is already occupied/);
+  });
+
+  test('stores each exact channel payload and records the approver in the same transaction', () => {
+    expect(migration).toMatch(/ALTER TABLE content_item_variants[\s\S]*?media JSONB/);
+    expect(migration).toMatch(/ALTER TABLE post_items[\s\S]*?content_format TEXT/);
+    expect(migration).toMatch(/ALTER TABLE post_items[\s\S]*?content_segments JSONB/);
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION materialize_writer_bundle[\s\S]*?\n\$\$;/
+    )?.[0];
+    expect(fn).toMatch(/p_approver_id UUID/);
+    expect(fn).toMatch(/p_approver_role TEXT/);
+    expect(fn).toMatch(/first_comment[\s\S]*?v_variant ->> 'firstComment'/);
+    expect(fn).toMatch(/content_format[\s\S]*?v_variant ->> 'format'/);
+    expect(fn).toMatch(/content_segments[\s\S]*?v_variant -> 'segments'/);
+    expect(fn).toMatch(/approved_by = p_approver_id/);
+    expect(fn).toMatch(/approved_role = p_approver_role/);
+    expect(migration).toMatch(/NEW\.approved_role IS DISTINCT FROM OLD\.approved_role/);
   });
 });
