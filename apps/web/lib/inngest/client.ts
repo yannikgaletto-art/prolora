@@ -6,6 +6,13 @@ export const inngest = new Inngest({
 });
 
 export type ProloraEvents = {
+  'writer/run': {
+    data: {
+      workspaceId: string;
+      mode: 'normal' | 'shadow';
+      requestedBy: string;
+    };
+  };
   'post/publish': { data: { postItemId: string; workspaceId: string } };
   'post/published-effects': { data: { postItemId: string; workspaceId: string } };
   'post/scheduled': { data: { postGroupId: string; workspaceId: string } };
