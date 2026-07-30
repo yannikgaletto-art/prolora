@@ -2,6 +2,7 @@ import { serve } from 'inngest/next';
 import { inngest } from '@/lib/inngest/client';
 import {
   publishPost,
+  publishPostEffects,
   publishScheduled,
   publishFirstComment,
   processFeedback,
@@ -30,6 +31,7 @@ export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
     publishPost,
+    publishPostEffects,
     publishScheduled,
     publishFirstComment,
     processFeedback,

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError } from '@/lib/api/http';
-import { getServiceDb, type PostItemRow } from '@/lib/db';
+import { getServiceDb, isMissingSchemaError, type PostItemRow } from '@/lib/db';
 import { inngest } from '@/lib/inngest/client';
+import { isLegacyReconciliationRequired } from '@/lib/posts/reconciliation-state';
 
 // POST /api/v1/posts/:id/retry — failed items only. The ONLY allowed
 // backwards status transition: failed -> queued (explicit user action,
@@ -31,28 +32,47 @@ export async function POST(
 
     const { data: failedItems, error: itemsError } = await db
       .from('post_items')
-      .select('id')
+      .select('id, status, error_message')
       .eq('post_group_id', id)
       .eq('status', 'failed')
-      .returns<Array<Pick<PostItemRow, 'id'>>>();
+      .returns<Array<Pick<PostItemRow, 'id' | 'status' | 'error_message'>>>();
     if (itemsError) {
       throw new Error(`[retry] items lookup failed: ${itemsError.message}`);
     }
-    if (!failedItems || failedItems.length === 0) {
+    const retryableItems = (failedItems ?? []).filter(
+      (item) => !isLegacyReconciliationRequired(item)
+    );
+    if (retryableItems.length === 0) {
+      if ((failedItems ?? []).some(isLegacyReconciliationRequired)) {
+        return jsonError(
+          409,
+          'Confirm whether the post exists on the platform before retrying.',
+          'reconciliation_required'
+        );
+      }
       return jsonError(409, 'No failed items to retry.', 'nothing_to_retry');
     }
 
-    const { error: updateError } = await db
+    const ids = retryableItems.map((item) => item.id);
+    let { error: updateError } = await db
       .from('post_items')
-      .update({ status: 'queued', error_message: null })
-      .eq('post_group_id', id)
+      .update({ status: 'queued', error_message: null, publish_retry_count: 0 })
+      .in('id', ids)
       .eq('status', 'failed');
+    if (updateError && isMissingSchemaError(updateError.code)) {
+      // Migration 020 may be rolling out behind the app. The explicit manual
+      // retry remains safe on the old schema, where no automatic counter exists.
+      ({ error: updateError } = await db
+        .from('post_items')
+        .update({ status: 'queued', error_message: null })
+        .in('id', ids)
+        .eq('status', 'failed'));
+    }
     if (updateError) {
       throw new Error(`[retry] status reset failed: ${updateError.message}`);
     }
 
     // Read-back: verify the reset actually landed (Double Assurance).
-    const ids = failedItems.map((item) => item.id);
     const { data: verify, error: verifyError } = await db
       .from('post_items')
       .select('id, status')

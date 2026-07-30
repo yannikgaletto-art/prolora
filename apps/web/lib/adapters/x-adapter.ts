@@ -331,7 +331,11 @@ export class XAdapter extends BaseAdapter {
         throw this.createError('CONTENT_REJECTED', 'X rejected the video during processing');
       }
       if (attempts++ > 30) {
-        throw this.createError('PLATFORM_DOWN', 'Video processing timed out', true);
+        throw this.createError(
+          'PRECOMMIT_RETRYABLE',
+          'Video processing timed out before tweet creation',
+          true
+        );
       }
       await new Promise((resolve) =>
         setTimeout(resolve, (processing?.check_after_secs ?? 2) * 1000)

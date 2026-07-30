@@ -78,6 +78,36 @@ describe('publish adapter recovery classification', () => {
     }
   );
 
+  test('treats a generic platform 5xx as ambiguous because the POST may have committed', async () => {
+    mocks.publish.mockRejectedValue(
+      new PlatformError('PLATFORM_DOWN', 'x', 'platform returned 500', true)
+    );
+
+    await expect(
+      publishAttempt(item, group, connection, 'workspace-1')
+    ).resolves.toMatchObject({
+      outcome: 'unknown',
+      errorMessage: expect.stringContaining('unknown'),
+    });
+  });
+
+  test('retries only an adapter error explicitly classified as pre-commit safe', async () => {
+    mocks.publish.mockRejectedValue(
+      new PlatformError(
+        'PRECOMMIT_RETRYABLE' as never,
+        'x',
+        'media processing unavailable before post creation',
+        true
+      )
+    );
+
+    await expect(
+      publishAttempt(item, group, connection, 'workspace-1')
+    ).resolves.toMatchObject({
+      outcome: 'retryable',
+    });
+  });
+
   test('preserves ambiguity when the one post-refresh attempt loses its response', async () => {
     mocks.publish
       .mockRejectedValueOnce(new PlatformError('AUTH_EXPIRED', 'x', 'expired'))

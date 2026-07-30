@@ -80,6 +80,8 @@ export type PlatformErrorType =
   | 'AUTH_REVOKED'
   | 'RATE_LIMITED'
   | 'CONTENT_REJECTED'
+  /** Adapter proved the failure happened before the external create request. */
+  | 'PRECOMMIT_RETRYABLE'
   | 'PLATFORM_DOWN'
   | 'NETWORK_ERROR'
   | 'UNKNOWN';

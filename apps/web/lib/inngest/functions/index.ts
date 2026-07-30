@@ -1,4 +1,4 @@
-export { publishPost, publishScheduled, publishFirstComment } from './publish-post';
+export { publishPost, publishPostEffects, publishScheduled, publishFirstComment } from './publish-post';
 export { processFeedback, batchProcessFeedback } from './process-feedback';
 export { pollFeedbackSources } from './poll-feedback-sources';
 export { refreshTokens, tokenHealthCheck, refreshExpiringTokens } from './token-lifecycle';

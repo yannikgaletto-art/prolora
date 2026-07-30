@@ -6,6 +6,7 @@ import { getValidToken, refreshConnectionToken } from '@/lib/auth/token-manager'
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type MediaAttachment, type RateLimitInfo } from '@/lib/adapters/types';
 import { prepareImageForPlatform, createSignedMediaUrl } from '@/lib/media/transform';
+import { legacyReconciliationMessage } from '@/lib/posts/reconciliation-state';
 
 const POST_GROUP_PUBLISH_COLUMNS = [
   'id',
@@ -129,9 +130,15 @@ interface ReleasePostItemClaimInput {
   reason: string;
 }
 
+interface ReleasedPostItemClaim {
+  status: 'queued' | 'failed';
+  retryCount: number | null;
+  legacy: boolean;
+}
+
 export async function releasePostItemClaimForRetry(
   input: ReleasePostItemClaimInput
-): Promise<boolean> {
+): Promise<ReleasedPostItemClaim | null> {
   const db = getServiceDb();
   const { data, error } = await db.rpc('release_post_item_claim_for_retry', {
     p_workspace_id: input.workspaceId,
@@ -139,14 +146,49 @@ export async function releasePostItemClaimForRetry(
     p_attempt_id: input.attemptId,
     p_reason: input.reason,
   });
-  if (error) {
+  if (error && !isMissingNamedRpc(error, 'release_post_item_claim_for_retry')) {
     throw new Error(`[publish-post] safe retry release failed: ${error.message}`);
   }
-  const rows = Array.isArray(data) ? data : data ? [data] : [];
-  if (rows.length > 1) {
-    throw new Error('[publish-post] safe retry release returned more than one row');
+  if (!error) {
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (rows.length > 1) {
+      throw new Error('[publish-post] safe retry release returned more than one row');
+    }
+    const row = rows[0] as
+      | { status: 'queued' | 'failed'; retry_count: number }
+      | undefined;
+    return row
+      ? { status: row.status, retryCount: row.retry_count, legacy: false }
+      : null;
   }
-  return rows.length === 1;
+
+  // Pre-020 compatibility cannot enforce a durable automatic retry budget.
+  // Finish in the legacy `failed` state instead of leaving `publishing`
+  // stranded or creating an unbounded chain of fresh events.
+  const { data: scopedItem, error: scopeError } = await db
+    .from('post_items')
+    .select('id, post_groups!inner(workspace_id)')
+    .eq('post_groups.workspace_id', input.workspaceId)
+    .eq('id', input.postItemId)
+    .maybeSingle<{ id: string }>();
+  if (scopeError) {
+    throw new Error(`[publish-post] legacy safe retry scope check failed: ${scopeError.message}`);
+  }
+  if (!scopedItem) return null;
+
+  const legacyMessage =
+    `Automatic retry paused until Migration 020 is applied: ${input.reason}`.slice(0, 1000);
+  const { data: finalized, error: legacyError } = await db
+    .from('post_items')
+    .update({ status: 'failed', error_message: legacyMessage })
+    .eq('id', input.postItemId)
+    .eq('status', 'publishing')
+    .select('id, status')
+    .maybeSingle<{ id: string; status: 'failed' }>();
+  if (legacyError) {
+    throw new Error(`[publish-post] legacy safe retry finalization failed: ${legacyError.message}`);
+  }
+  return finalized ? { status: 'failed', retryCount: null, legacy: true } : null;
 }
 
 export type PublishRecoveryDecision =
@@ -251,6 +293,7 @@ export async function finalizePostItemClaim(
     throw new Error('[publish-post] claim fence rejected finalization');
   }
 
+  const legacyReconciliation = input.status === 'reconciliation_required';
   const update =
     input.status === 'published'
       ? {
@@ -261,11 +304,13 @@ export async function finalizePostItemClaim(
           error_message: null,
         }
       : {
-          status: input.status,
+          status: legacyReconciliation ? 'failed' : input.status,
           platform_post_id: null,
           platform_url: null,
           published_at: null,
-          error_message: input.errorMessage ?? 'Unknown publish error',
+          error_message: legacyReconciliation
+            ? legacyReconciliationMessage(input.errorMessage)
+            : (input.errorMessage ?? 'Unknown publish error'),
         };
   const { data: finalized, error: legacyError } = await db
     .from('post_items')
@@ -286,7 +331,7 @@ export async function finalizePostItemClaim(
   }
   return {
     post_item_id: finalized.id,
-    status: finalized.status,
+    status: legacyReconciliation ? 'reconciliation_required' : finalized.status,
     platform_post_id: finalized.platform_post_id,
   };
 }
@@ -420,6 +465,26 @@ export const publishPost = inngest.createFunction(
       if (!released) {
         throw new Error('[publish-post] safe retry claim fence was lost');
       }
+      if (released.status === 'failed') {
+        await step.sendEvent('fire-retry-exhausted-webhook', {
+          name: 'webhooks/fire',
+          data: {
+            workspaceId,
+            event: 'post.failed',
+            payload: {
+              post_group_id: prepared.item.post_group_id,
+              post_item_id: prepared.item.id,
+              platform: prepared.item.platform,
+              error: recovery.reason,
+            },
+          },
+        });
+        return {
+          published: false,
+          error: recovery.reason,
+          retryExhausted: true,
+        };
+      }
       await step.sleepUntil('wait-for-safe-publish-retry', new Date(recovery.retryAt));
       await step.sendEvent('enqueue-safe-publish-retry', {
         name: 'post/publish',
@@ -468,39 +533,32 @@ export const publishPost = inngest.createFunction(
       }
     });
 
-    // 4. Webhook event — after the status is durable, never blocking it.
-    await step.sendEvent('fire-webhook', {
-      name: 'webhooks/fire',
-      data: {
-        workspaceId,
-        event: attempt.outcome === 'published' ? 'post.published' : 'post.failed',
-        payload: {
-          post_group_id: prepared.item.post_group_id,
-          post_item_id: prepared.item.id,
-          platform: prepared.item.platform,
-          ...(attempt.outcome === 'published'
-            ? { platform_post_id: attempt.platformPostId, platform_url: attempt.platformUrl }
-            : { error: attempt.errorMessage }),
-        },
-      },
-    });
+    if (recovery.status === 'reconciliation_required') {
+      return { published: false, reconciliationRequired: true, error: recovery.errorMessage };
+    }
 
-    if (attempt.outcome !== 'published') {
+    if (recovery.status === 'failed') {
+      await step.sendEvent('fire-failed-webhook', {
+        name: 'webhooks/fire',
+        data: {
+          workspaceId,
+          event: 'post.failed',
+          payload: {
+            post_group_id: prepared.item.post_group_id,
+            post_item_id: prepared.item.id,
+            platform: prepared.item.platform,
+            error: recovery.errorMessage,
+          },
+        },
+      });
       return { published: false, error: attempt.errorMessage };
     }
 
-    // 5. First comment (own function sleeps before posting).
-    if (prepared.group.first_comment) {
-      await step.sendEvent('send-first-comment', {
-        name: 'post/first-comment',
-        data: { postItemId: prepared.item.id, workspaceId, comment: prepared.group.first_comment },
-      });
-    }
-
-    // 6. First metrics snapshot after 1h (the 4h cron covers later ones).
-    await step.sleep('wait-before-first-metrics', '1h');
-    await step.sendEvent('collect-first-metrics', {
-      name: 'metrics/collect',
+    // A separately durable event makes normal and operator-confirmed publishes
+    // converge on exactly the same downstream webhook/comment/metrics flow.
+    await step.sendEvent('enqueue-published-effects', {
+      id: `post-published-effects:${prepared.item.id}`,
+      name: 'post/published-effects',
       data: { postItemId: prepared.item.id, workspaceId },
     });
 
@@ -508,12 +566,81 @@ export const publishPost = inngest.createFunction(
   }
 );
 
+export const publishPostEffects = inngest.createFunction(
+  {
+    id: 'publish-post-effects',
+    retries: 3,
+  },
+  { event: 'post/published-effects' },
+  async ({ event, step }) => {
+    const { postItemId, workspaceId } = event.data;
+    const prepared = await step.run('load-published-post', async () => {
+      const db = getServiceDb();
+      const { data, error } = await db
+        .from('post_items')
+        .select(
+          'id, post_group_id, platform, status, platform_post_id, platform_url, post_groups!inner(workspace_id, first_comment)'
+        )
+        .eq('post_groups.workspace_id', workspaceId)
+        .eq('id', postItemId)
+        .maybeSingle<{
+          id: string;
+          post_group_id: string;
+          platform: string;
+          status: string;
+          platform_post_id: string | null;
+          platform_url: string | null;
+          post_groups: { workspace_id: string; first_comment: string | null };
+        }>();
+      if (error) throw new Error(`[publish-effects] item load failed: ${error.message}`);
+      if (!data || data.status !== 'published' || !data.platform_post_id) return null;
+      return data;
+    });
+
+    if (!prepared) return { delivered: false, reason: 'item is not published' };
+
+    await step.sendEvent('fire-published-webhook', {
+      name: 'webhooks/fire',
+      data: {
+        workspaceId,
+        event: 'post.published',
+        payload: {
+          post_group_id: prepared.post_group_id,
+          post_item_id: prepared.id,
+          platform: prepared.platform,
+          platform_post_id: prepared.platform_post_id,
+          platform_url: prepared.platform_url,
+        },
+      },
+    });
+
+    if (prepared.post_groups.first_comment) {
+      await step.sendEvent('send-first-comment', {
+        name: 'post/first-comment',
+        data: {
+          postItemId,
+          workspaceId,
+          comment: prepared.post_groups.first_comment,
+        },
+      });
+    }
+
+    await step.sleep('wait-before-first-metrics', '1h');
+    await step.sendEvent('collect-first-metrics', {
+      name: 'metrics/collect',
+      data: { postItemId, workspaceId },
+    });
+
+    return { delivered: true };
+  }
+);
+
 // One publish attempt. Handles the PlatformError taxonomy:
 // AUTH_EXPIRED -> forced token refresh + one retry (same call)
 // RATE_LIMITED -> reported to the caller for sleepUntil
 // CONTENT_REJECTED -> failed, no retry
-// PLATFORM_DOWN -> safe fresh-attempt retry
-// NETWORK_ERROR -> operator reconciliation (the external result is ambiguous)
+// PRECOMMIT_RETRYABLE -> safe fresh-attempt retry
+// PLATFORM_DOWN / NETWORK_ERROR -> operator reconciliation (the POST may have committed)
 export async function publishAttempt(
   item: PostItemRow,
   group: PostGroupRow,
@@ -572,12 +699,13 @@ export async function publishAttempt(
         };
       case 'CONTENT_REJECTED':
         return { outcome: 'failed', errorMessage: error.message };
-      case 'PLATFORM_DOWN':
+      case 'PRECOMMIT_RETRYABLE':
         return {
           outcome: 'retryable',
           retryAtIso: error.retryAfter?.toISOString(),
           errorMessage: error.message,
         };
+      case 'PLATFORM_DOWN':
       case 'NETWORK_ERROR':
         return {
           outcome: 'unknown',

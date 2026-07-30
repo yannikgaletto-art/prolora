@@ -5,6 +5,15 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
 }));
 
+function queryChain<T>(data: T, error: { code?: string; message: string } | null = null) {
+  const result = Promise.resolve({ data, error });
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
+  for (const method of ['update', 'eq', 'in', 'select', 'maybeSingle']) {
+    chain[method] = vi.fn(() => Object.assign(result, chain));
+  }
+  return Object.assign(result, chain);
+}
+
 vi.mock('@/lib/db', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/db')>();
   return {
@@ -270,7 +279,7 @@ describe('atomic post item claim', () => {
 
   test('releases a known-safe failure for a fresh fenced event', async () => {
     mocks.rpc.mockResolvedValue({
-      data: [{ post_item_id: 'post-1', status: 'queued' }],
+      data: [{ post_item_id: 'post-1', status: 'queued', retry_count: 1 }],
       error: null,
     });
 
@@ -281,12 +290,54 @@ describe('atomic post item claim', () => {
         attemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         reason: 'Rate limited before publishing.',
       })
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ status: 'queued', retryCount: 1, legacy: false });
     expect(mocks.rpc).toHaveBeenCalledWith('release_post_item_claim_for_retry', {
       p_workspace_id: 'workspace-1',
       p_post_item_id: 'post-1',
       p_attempt_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
       p_reason: 'Rate limited before publishing.',
+    });
+  });
+
+  test('returns a terminal failed state when the durable fresh-retry budget is exhausted', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ post_item_id: 'post-1', status: 'failed', retry_count: 3 }],
+      error: null,
+    });
+
+    await expect(
+      releasePostItemClaimForRetry({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        reason: 'Platform unavailable before publishing.',
+      })
+    ).resolves.toEqual({ status: 'failed', retryCount: 3, legacy: false });
+  });
+
+  test('uses a pre-020-valid failed state when the safe-release RPC is missing', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function public.release_post_item_claim_for_retry',
+      },
+    });
+    const scoped = queryChain({ id: 'post-1' });
+    const finalized = queryChain({ id: 'post-1', status: 'failed' as const });
+    mocks.from.mockReturnValueOnce(scoped).mockReturnValueOnce(finalized);
+
+    await expect(
+      releasePostItemClaimForRetry({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        reason: 'Rate limited before publishing.',
+      })
+    ).resolves.toEqual({ status: 'failed', retryCount: null, legacy: true });
+    expect(finalized.update).toHaveBeenCalledWith({
+      status: 'failed',
+      error_message: expect.stringContaining('Migration 020'),
     });
   });
 
@@ -428,5 +479,42 @@ describe('atomic post item claim', () => {
         publishedAt: null,
       })
     ).resolves.toMatchObject({ status: 'reconciliation_required' });
+  });
+
+  test('uses a marked legacy failed row for ambiguous outcomes before migration 020', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function public.finalize_post_item_claim',
+      },
+    });
+    const scoped = queryChain({ id: 'post-1' });
+    const finalized = queryChain({
+      id: 'post-1',
+      status: 'failed' as const,
+      platform_post_id: null,
+    });
+    mocks.from.mockReturnValueOnce(scoped).mockReturnValueOnce(finalized);
+
+    await expect(
+      finalizePostItemClaim({
+        workspaceId: 'workspace-1',
+        postItemId: 'post-1',
+        attemptId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        status: 'reconciliation_required',
+        platformPostId: null,
+        platformUrl: null,
+        errorMessage: 'Publishing outcome is unknown.',
+        publishedAt: null,
+      })
+    ).resolves.toMatchObject({ status: 'reconciliation_required' });
+    expect(finalized.update).toHaveBeenCalledWith({
+      status: 'failed',
+      platform_post_id: null,
+      platform_url: null,
+      published_at: null,
+      error_message: expect.stringContaining('[reconciliation_required]'),
+    });
   });
 });

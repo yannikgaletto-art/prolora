@@ -13,6 +13,7 @@ export interface AuthContext {
   method: 'api_key' | 'session';
   userId?: string;
   apiKeyId?: string;
+  workspaceRole?: 'admin' | 'member' | 'viewer';
 }
 
 // Central auth for every API endpoint. Two paths:
@@ -102,7 +103,12 @@ async function authenticateSession(req: NextRequest): Promise<AuthContext> {
     if (!data) {
       throw new ApiError(403, 'You are not a member of this workspace.', 'forbidden');
     }
-    return { workspaceId: data.workspace_id, method: 'session', userId: user.id };
+    return {
+      workspaceId: data.workspace_id,
+      method: 'session',
+      userId: user.id,
+      workspaceRole: data.role as AuthContext['workspaceRole'],
+    };
   }
 
   const { data, error: memberError } = await membershipQuery
@@ -118,7 +124,12 @@ async function authenticateSession(req: NextRequest): Promise<AuthContext> {
   if (!first) {
     throw new ApiError(403, 'No workspace found for this user.', 'no_workspace');
   }
-  return { workspaceId: first.workspace_id, method: 'session', userId: user.id };
+  return {
+    workspaceId: first.workspace_id,
+    method: 'session',
+    userId: user.id,
+    workspaceRole: first.role as AuthContext['workspaceRole'],
+  };
 }
 
 function safeHashCompare(a: string, b: string): boolean {

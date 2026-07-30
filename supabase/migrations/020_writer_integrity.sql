@@ -25,7 +25,10 @@ ALTER TABLE post_items
   ADD COLUMN IF NOT EXISTS publish_claim_lease_until TIMESTAMPTZ NULL,
   -- Makes a confirmed no-publish resolution idempotent until its replacement
   -- event acquires a fresh claim.
-  ADD COLUMN IF NOT EXISTS publish_reconciliation_resolved_at TIMESTAMPTZ NULL;
+  ADD COLUMN IF NOT EXISTS publish_reconciliation_resolved_at TIMESTAMPTZ NULL,
+  -- Fresh publish events are bounded across Inngest runs, not merely per run.
+  ADD COLUMN IF NOT EXISTS publish_retry_count INTEGER NOT NULL DEFAULT 0
+    CHECK (publish_retry_count BETWEEN 0 AND 3);
 
 ALTER TABLE post_items
   DROP CONSTRAINT IF EXISTS post_items_status_check;
@@ -359,7 +362,8 @@ CREATE OR REPLACE FUNCTION release_post_item_claim_for_retry(
 )
 RETURNS TABLE (
   post_item_id UUID,
-  status TEXT
+  status TEXT,
+  retry_count INTEGER
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -368,6 +372,7 @@ AS $$
 DECLARE
   v_status TEXT;
   v_claim_attempt_id UUID;
+  v_retry_count INTEGER;
 BEGIN
   IF p_reason IS NULL OR char_length(btrim(p_reason)) NOT BETWEEN 1 AND 1000 THEN
     RAISE EXCEPTION 'safe retry reason must contain 1 to 1000 characters'
@@ -376,10 +381,12 @@ BEGIN
 
   SELECT
     pi.status,
-    pi.publish_claim_attempt_id
+    pi.publish_claim_attempt_id,
+    pi.publish_retry_count
   INTO
     v_status,
-    v_claim_attempt_id
+    v_claim_attempt_id,
+    v_retry_count
   FROM public.post_items AS pi
   INNER JOIN public.post_groups AS pg
     ON pg.id = pi.post_group_id
@@ -394,13 +401,21 @@ BEGIN
   IF v_status = 'publishing' THEN
     UPDATE public.post_items AS pi
     SET
-      status = 'queued',
-      error_message = btrim(p_reason)
+      status = CASE
+        WHEN pi.publish_retry_count >= 3 THEN 'failed'
+        ELSE 'queued'
+      END,
+      publish_retry_count = LEAST(pi.publish_retry_count + 1, 3),
+      error_message = CASE
+        WHEN pi.publish_retry_count >= 3
+          THEN 'Automatic publish retry limit reached: ' || btrim(p_reason)
+        ELSE btrim(p_reason)
+      END
     WHERE pi.id = p_post_item_id
       AND pi.status = 'publishing'
       AND pi.publish_claim_attempt_id = p_attempt_id
-    RETURNING pi.id, pi.status
-    INTO post_item_id, status;
+    RETURNING pi.id, pi.status, pi.publish_retry_count
+    INTO post_item_id, status, retry_count;
     IF FOUND THEN
       RETURN NEXT;
     END IF;
@@ -411,6 +426,15 @@ BEGIN
   IF v_status = 'queued' THEN
     post_item_id := p_post_item_id;
     status := v_status;
+    retry_count := v_retry_count;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  IF v_status = 'failed' AND v_retry_count >= 3 THEN
+    post_item_id := p_post_item_id;
+    status := v_status;
+    retry_count := v_retry_count;
     RETURN NEXT;
   END IF;
 END;
@@ -541,6 +565,7 @@ AS $$
 DECLARE
   v_status TEXT;
   v_reconciliation_resolved_at TIMESTAMPTZ;
+  v_platform_post_id TEXT;
 BEGIN
   IF p_resolution NOT IN ('not_published', 'published') THEN
     RAISE EXCEPTION 'resolution must be not_published or published'
@@ -553,10 +578,12 @@ BEGIN
 
   SELECT
     pi.status,
-    pi.publish_reconciliation_resolved_at
+    pi.publish_reconciliation_resolved_at,
+    pi.platform_post_id
   INTO
     v_status,
-    v_reconciliation_resolved_at
+    v_reconciliation_resolved_at,
+    v_platform_post_id
   FROM public.post_items AS pi
   INNER JOIN public.post_groups AS pg
     ON pg.id = pi.post_group_id
@@ -578,6 +605,17 @@ BEGIN
     post_item_id := p_post_item_id;
     status := v_status;
     platform_post_id := NULL;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+  IF p_resolution = 'published'
+    AND v_status = 'published'
+    AND v_reconciliation_resolved_at IS NOT NULL
+    AND v_platform_post_id = p_platform_post_id
+  THEN
+    post_item_id := p_post_item_id;
+    status := v_status;
+    platform_post_id := v_platform_post_id;
     RETURN NEXT;
     RETURN;
   END IF;
@@ -604,10 +642,7 @@ BEGIN
       WHEN p_resolution = 'published' THEN now()
       ELSE NULL
     END,
-    publish_reconciliation_resolved_at = CASE
-      WHEN p_resolution = 'not_published' THEN now()
-      ELSE NULL
-    END,
+    publish_reconciliation_resolved_at = now(),
     error_message = NULL
   WHERE pi.id = p_post_item_id
     AND pi.status = 'reconciliation_required'

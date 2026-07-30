@@ -9,6 +9,7 @@ import { Select } from '@/app/components/Select';
 import { Card } from '@/app/components/Card';
 import { Modal } from '@/app/components/Modal';
 import { Button } from '@/app/components/Button';
+import { Input } from '@/app/components/Input';
 import { EmptyState } from '@/app/components/EmptyState';
 import { Pagination } from '@/app/components/Pagination';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
@@ -17,6 +18,7 @@ import type { PostGroupWithItems } from '@/lib/posts/list-posts';
 import type { MediaRef, PostItemRow } from '@/lib/db';
 import { PLATFORM_META } from '../platform-meta';
 import { storeAppliedTemplate } from '../handoff';
+import { isLegacyReconciliationRequired } from '@/lib/posts/reconciliation-state';
 
 const STATUS_OPTIONS = [
   { value: 'draft', label: 'Draft' },
@@ -150,6 +152,9 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [reconcilingItemId, setReconcilingItemId] = useState<string | null>(null);
+  const [reconciliationDrafts, setReconciliationDrafts] = useState<
+    Record<string, { platformPostId: string; platformUrl: string }>
+  >({});
 
   function navigate(next: { status?: string; platform?: string; page?: number }) {
     const params = new URLSearchParams();
@@ -184,6 +189,33 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
         body: JSON.stringify({ resolution: 'not_published' }),
       });
       setToast({ variant: 'success', message: 'Fresh publish attempt queued.' });
+      setSelected(null);
+      router.refresh();
+    } catch (error) {
+      setToast({ variant: 'error', message: errorMessage(error) });
+    } finally {
+      setReconcilingItemId(null);
+    }
+  }
+
+  async function handleConfirmedPublished(itemId: string) {
+    const draft = reconciliationDrafts[itemId] ?? { platformPostId: '', platformUrl: '' };
+    const platformPostId = draft.platformPostId.trim();
+    if (!platformPostId) {
+      setToast({ variant: 'error', message: 'Enter the platform post ID.' });
+      return;
+    }
+    setReconcilingItemId(itemId);
+    try {
+      await fetchApi(`/v1/posts/items/${itemId}/reconcile`, {
+        method: 'POST',
+        body: JSON.stringify({
+          resolution: 'published',
+          platform_post_id: platformPostId,
+          platform_url: draft.platformUrl.trim() || undefined,
+        }),
+      });
+      setToast({ variant: 'success', message: 'Published post recorded.' });
       setSelected(null);
       router.refresh();
     } catch (error) {
@@ -424,21 +456,58 @@ export function PostsExplorer({ posts, mediaPreviews, page, perPage, total, stat
                   {item.error_message && (
                     <p className="mt-1 text-sm text-red-600">{item.error_message}</p>
                   )}
-                  {item.status === 'reconciliation_required' && (
+                  {(item.status === 'reconciliation_required' ||
+                    isLegacyReconciliationRequired(item)) && (
                     <div className="mt-3 rounded-md bg-red-50 p-3">
                       <p className="text-xs text-red-800">
-                        Check this account on the platform. Only retry after confirming that no post
-                        was created.
+                        Check this account on the platform, then choose exactly one resolution.
                       </p>
-                      <Button
-                        variant="secondary"
-                        className="mt-2"
-                        loading={reconcilingItemId === item.id}
-                        disabled={reconcilingItemId !== null && reconcilingItemId !== item.id}
-                        onClick={() => handleConfirmedNotPublished(item.id)}
-                      >
-                        Confirm no post exists and retry
-                      </Button>
+                      <div className="mt-3 space-y-2">
+                        <Input
+                          label="Platform post ID"
+                          value={reconciliationDrafts[item.id]?.platformPostId ?? ''}
+                          onChange={(event) =>
+                            setReconciliationDrafts((current) => ({
+                              ...current,
+                              [item.id]: {
+                                platformPostId: event.target.value,
+                                platformUrl: current[item.id]?.platformUrl ?? '',
+                              },
+                            }))
+                          }
+                        />
+                        <Input
+                          label="Platform URL (optional)"
+                          type="url"
+                          value={reconciliationDrafts[item.id]?.platformUrl ?? ''}
+                          onChange={(event) =>
+                            setReconciliationDrafts((current) => ({
+                              ...current,
+                              [item.id]: {
+                                platformPostId: current[item.id]?.platformPostId ?? '',
+                                platformUrl: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            loading={reconcilingItemId === item.id}
+                            disabled={reconcilingItemId !== null && reconcilingItemId !== item.id}
+                            onClick={() => handleConfirmedPublished(item.id)}
+                          >
+                            Confirm post exists
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            loading={reconcilingItemId === item.id}
+                            disabled={reconcilingItemId !== null && reconcilingItemId !== item.id}
+                            onClick={() => handleConfirmedNotPublished(item.id)}
+                          >
+                            Confirm no post exists and retry
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {formatMetrics([item]) !== '—' && (

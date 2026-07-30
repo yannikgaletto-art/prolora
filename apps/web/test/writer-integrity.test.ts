@@ -263,11 +263,13 @@ describe('migration 020 writer integrity contract', () => {
       | 'publish_claim_attempt_id'
       | 'publish_claimed_at'
       | 'publish_claim_lease_until'
+      | 'publish_retry_count'
     > = {
       content_item_variant_id: null,
       publish_claim_attempt_id: null,
       publish_claimed_at: null,
       publish_claim_lease_until: null,
+      publish_retry_count: 0,
     };
 
     expect(typedRow).toBeDefined();
@@ -276,6 +278,7 @@ describe('migration 020 writer integrity contract', () => {
       'publish_claim_attempt_id',
       'publish_claimed_at',
       'publish_claim_lease_until',
+      'publish_retry_count',
     ]);
     for (const optionalColumn of POST_ITEM_WRITER_INTEGRITY_COLUMNS) {
       expect(POST_ITEM_ROW_COLUMNS.split(', ')).not.toContain(optionalColumn);
@@ -342,6 +345,19 @@ describe('migration 020 writer integrity contract', () => {
     expect(resolveFunction).toBeDefined();
     expect(resolveFunction).toMatch(/reconciliation_required/);
     expect(resolveFunction).toMatch(/workspace_id\s*=\s*p_workspace_id/);
+  });
+
+  test('bounds fresh publish retries with a durable counter and terminal failed state', () => {
+    const releaseFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION release_post_item_claim_for_retry[\s\S]*?\$\$;/
+    )?.[0];
+
+    expect(migration).toMatch(/publish_retry_count INTEGER NOT NULL DEFAULT 0/);
+    expect(releaseFunction).toBeDefined();
+    expect(releaseFunction).toMatch(/publish_retry_count/);
+    expect(releaseFunction).toMatch(/retry_count/);
+    expect(releaseFunction).toMatch(/THEN 'failed'/);
+    expect(releaseFunction).toMatch(/ELSE 'queued'/);
   });
 
   test('assigns materialize_writer_bundle to Task 4 migration 022, not Task 1', () => {

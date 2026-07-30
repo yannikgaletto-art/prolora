@@ -7,6 +7,7 @@ export const inngest = new Inngest({
 
 export type ProloraEvents = {
   'post/publish': { data: { postItemId: string; workspaceId: string } };
+  'post/published-effects': { data: { postItemId: string; workspaceId: string } };
   'post/scheduled': { data: { postGroupId: string; workspaceId: string } };
   'post/first-comment': { data: { postItemId: string; workspaceId: string; comment: string } };
   'feedback/process': { data: { rawFeedbackId: string; workspaceId: string } };

@@ -138,6 +138,8 @@ export interface PostItemRow {
   publish_claimed_at?: string | null;
   /** Migration 020; omitted by the compatibility allowlist until rollout is complete. */
   publish_claim_lease_until?: string | null;
+  /** Migration 020; durable cap for fresh automatic publish attempts. */
+  publish_retry_count?: number;
   created_at: string;
 }
 
@@ -148,6 +150,7 @@ export const POST_ITEM_WRITER_INTEGRITY_COLUMNS = [
   'publish_claim_attempt_id',
   'publish_claimed_at',
   'publish_claim_lease_until',
+  'publish_retry_count',
 ] as const;
 
 export const POST_ITEM_ROW_COLUMNS = [
