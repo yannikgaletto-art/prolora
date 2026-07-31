@@ -6,6 +6,7 @@ import { Button } from '@/app/components/Button';
 import { errorMessage, fetchApi } from '@/app/lib/api';
 import { ContentDnaPanel, type AddWriterSampleInput } from './ContentDnaPanel';
 import { ReviewCard } from './ReviewCard';
+import { createWriterDemoData } from './writer-demo';
 import {
   nextWriterSection,
   type WriterHistoryEntry,
@@ -40,6 +41,8 @@ export function WriterView({
 }) {
   const router = useRouter();
   const [section, setSection] = useState<WriterSection>('today');
+  const [data, setData] = useState(initialData);
+  const [demoMode, setDemoMode] = useState(false);
   const [enabled, setEnabled] = useState(initialData.policy.enabled);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -49,10 +52,8 @@ export function WriterView({
     history: null,
   });
 
-  const blocked =
-    initialData.availability === 'migration_pending' ||
-    initialData.availability === 'unavailable';
-  const configured = initialData.availability === 'ready';
+  const blocked = data.availability === 'migration_pending' || data.availability === 'unavailable';
+  const configured = data.availability === 'ready';
   const policyBusy = busy === 'policy';
 
   function showSuccess(message: string) {
@@ -66,6 +67,12 @@ export function WriterView({
 
   async function updatePolicy() {
     const nextEnabled = !enabled;
+    if (demoMode) {
+      setEnabled(nextEnabled);
+      setData((current) => ({ ...current, policy: { ...current.policy, enabled: nextEnabled } }));
+      showSuccess(copy.feedback.policyUpdated);
+      return;
+    }
     setBusy('policy');
     setNotice(null);
     try {
@@ -83,6 +90,11 @@ export function WriterView({
   }
 
   async function runShadow() {
+    if (demoMode) {
+      setData((current) => ({ ...current, pendingReview: createWriterDemoData(current.workspaceName).pendingReview, stats: { ...current.stats, awaitingApproval: 1 } }));
+      showSuccess(copy.feedback.runStarted);
+      return;
+    }
     setBusy('run');
     setNotice(null);
     try {
@@ -99,8 +111,18 @@ export function WriterView({
   }
 
   async function approve(selectedChannelIds: string[]) {
-    const review = initialData.pendingReview;
+    const review = data.pendingReview;
     if (!review) return;
+    if (demoMode) {
+      setData((current) => ({
+        ...current,
+        pendingReview: null,
+        stats: { ...current.stats, awaitingApproval: 0 },
+        history: [{ id: `${review.id}-approved`, title: review.title, status: 'approved', occurredAt: new Date().toISOString(), detail: 'Testfreigabe — es wurde nichts eingeplant oder veröffentlicht.' }, ...current.history],
+      }));
+      showSuccess(copy.feedback.approved);
+      return;
+    }
     setBusy('approve');
     setNotice(null);
     try {
@@ -120,7 +142,7 @@ export function WriterView({
   }
 
   async function edit(channelCopy: Record<string, string>) {
-    const review = initialData.pendingReview;
+    const review = data.pendingReview;
     if (!review) return;
     const requestedChannelCopy = Object.fromEntries(
       review.channels
@@ -130,6 +152,11 @@ export function WriterView({
         .map((channel) => [channel.id, channelCopy[channel.id] ?? channel.content])
     );
     if (Object.keys(requestedChannelCopy).length === 0) return;
+    if (demoMode) {
+      setData((current) => current.pendingReview ? ({ ...current, pendingReview: { ...current.pendingReview, channels: current.pendingReview.channels.map((channel) => ({ ...channel, content: requestedChannelCopy[channel.id] ?? channel.content })) } }) : current);
+      showSuccess(copy.feedback.edited);
+      return;
+    }
     setBusy('edit');
     setNotice(null);
     try {
@@ -152,8 +179,13 @@ export function WriterView({
   }
 
   async function alternate() {
-    const review = initialData.pendingReview;
+    const review = data.pendingReview;
     if (!review) return;
+    if (demoMode) {
+      setData((current) => current.pendingReview ? ({ ...current, pendingReview: { ...current.pendingReview, title: 'Alternative Richtung: Weniger erklären, klarer führen', preview: 'Eine alternative Testempfehlung — ebenfalls nur lokal sichtbar.' } }) : current);
+      showSuccess(copy.feedback.alternateStarted);
+      return;
+    }
     setBusy('alternate');
     setNotice(null);
     try {
@@ -173,8 +205,13 @@ export function WriterView({
   }
 
   async function reject(reason: string, note: string) {
-    const review = initialData.pendingReview;
+    const review = data.pendingReview;
     if (!review) return;
+    if (demoMode) {
+      setData((current) => ({ ...current, pendingReview: null, stats: { ...current.stats, awaitingApproval: 0 }, history: [{ id: `${review.id}-rejected`, title: review.title, status: 'rejected', occurredAt: new Date().toISOString(), detail: note || reason }, ...current.history] }));
+      showSuccess(copy.feedback.rejected);
+      return;
+    }
     setBusy('reject');
     setNotice(null);
     try {
@@ -195,6 +232,16 @@ export function WriterView({
   }
 
   async function addSample(input: AddWriterSampleInput) {
+    if (demoMode) {
+      setData((current) => {
+        const sample = { id: `demo-sample-${Date.now()}`, kind: input.kind, origin: input.origin, label: input.label || 'Neues Testsample', platform: null, active: true } as const;
+        const samples = [...current.dna.samples, sample];
+        const goldenSampleCount = samples.filter((entry) => entry.kind === 'golden').length;
+        return { ...current, dna: { ...current.dna, samples, sampleCount: samples.length, goldenSampleCount, avoidSampleCount: samples.length - goldenSampleCount }, stats: { ...current.stats, goldenSamples: goldenSampleCount } };
+      });
+      showSuccess(copy.feedback.sampleAdded);
+      return;
+    }
     setBusy('sample');
     setNotice(null);
     try {
@@ -218,6 +265,11 @@ export function WriterView({
   }
 
   async function rebuildDna() {
+    if (demoMode) {
+      setData((current) => ({ ...current, dna: { ...current.dna, version: (current.dna.version ?? 0) + 1, status: 'active', confidence: current.dna.goldenSampleCount >= 5 ? 'reliable' : 'preliminary' } }));
+      showSuccess(copy.feedback.rebuildStarted);
+      return;
+    }
     setBusy('rebuild');
     setNotice(null);
     try {
@@ -239,6 +291,15 @@ export function WriterView({
     event.preventDefault();
     setSection(next);
     tabRefs.current[next]?.focus();
+  }
+
+  function startDemo() {
+    const demo = createWriterDemoData(data.workspaceName);
+    setData(demo);
+    setEnabled(demo.policy.enabled);
+    setDemoMode(true);
+    setSection('today');
+    setNotice({ tone: 'success', message: 'Testmodus aktiv: Alle Aktionen bleiben lokal und veröffentlichen nichts.' });
   }
 
   return (
@@ -313,8 +374,8 @@ export function WriterView({
                 <Button
                   type="button"
                   loading={busy === 'run'}
-                  disabled={blocked || !configured || busy !== null}
-                  onClick={() => void runShadow()}
+                  disabled={(!configured && !demoMode) || busy !== null}
+                  onClick={() => (blocked && !demoMode ? startDemo() : void runShadow())}
                   className="min-h-11 rounded-xl shadow-[0_12px_28px_-16px_rgba(37,99,235,0.95)]"
                 >
                   {busy === 'run' ? copy.actions.running : copy.actions.runShadow}
@@ -325,15 +386,15 @@ export function WriterView({
         </div>
       </section>
 
-      {initialData.availability !== 'ready' && (
-        <SetupState availability={initialData.availability} copy={copy} />
+      {!demoMode && initialData.availability !== 'ready' && (
+        <SetupState availability={initialData.availability} copy={copy} onStartDemo={startDemo} />
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <WriterStat value={initialData.stats.awaitingApproval} label={copy.stats.awaiting} tone="blue" />
-        <WriterStat value={initialData.stats.preparing} label={copy.stats.preparing} tone="gray" />
-        <WriterStat value={initialData.stats.goldenSamples} label={copy.stats.learned} tone="green" />
-        <WriterStat value={initialData.stats.exceptions} label={copy.stats.exceptions} tone="amber" />
+        <WriterStat value={data.stats.awaitingApproval} label={copy.stats.awaiting} tone="blue" />
+        <WriterStat value={data.stats.preparing} label={copy.stats.preparing} tone="gray" />
+        <WriterStat value={data.stats.goldenSamples} label={copy.stats.learned} tone="green" />
+        <WriterStat value={data.stats.exceptions} label={copy.stats.exceptions} tone="amber" />
       </div>
 
       <nav
@@ -397,12 +458,12 @@ export function WriterView({
             </div>
           )}
 
-          {initialData.pendingReview ? (
+          {data.pendingReview ? (
             <ReviewCard
-              key={initialData.pendingReview.id}
-              review={initialData.pendingReview}
+              key={data.pendingReview.id}
+              review={data.pendingReview}
               copy={copy}
-              disabled={blocked}
+              disabled={blocked && !demoMode}
               busy={
                 busy === 'approve' ||
                 busy === 'edit' ||
@@ -417,23 +478,23 @@ export function WriterView({
               onReject={reject}
             />
           ) : (
-            <EmptyToday copy={copy} disabled={blocked || !configured} onRun={runShadow} busy={busy} />
+            <EmptyToday copy={copy} disabled={(blocked && !demoMode) || !configured} onRun={runShadow} busy={busy} />
           )}
         </section>
       )}
 
       {section === 'dna' && (
         <ContentDnaPanel
-          dna={initialData.dna}
+          dna={data.dna}
           copy={copy}
-          disabled={blocked}
+          disabled={blocked && !demoMode}
           busy={busy === 'sample' || busy === 'rebuild' ? busy : null}
           onAddSample={addSample}
           onRebuild={rebuildDna}
         />
       )}
 
-      {section === 'history' && <WriterHistory history={initialData.history} copy={copy} />}
+      {section === 'history' && <WriterHistory history={data.history} copy={copy} />}
     </div>
   );
 }
@@ -441,9 +502,11 @@ export function WriterView({
 function SetupState({
   availability,
   copy,
+  onStartDemo,
 }: {
   availability: WriterUiData['availability'];
   copy: WriterCopy;
+  onStartDemo: () => void;
 }) {
   const content =
     availability === 'migration_pending'
@@ -472,6 +535,9 @@ function SetupState({
           <h2 className="text-sm font-semibold text-gray-950">{content.title}</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">{content.body}</p>
           <p className="mt-2 text-xs font-medium text-gray-500">{copy.setup.safeNote}</p>
+          <Button type="button" onClick={onStartDemo} className="mt-4 min-h-10">
+            Testmodus starten
+          </Button>
         </div>
       </div>
     </section>
