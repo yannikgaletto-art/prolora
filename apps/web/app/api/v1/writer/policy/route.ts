@@ -19,6 +19,8 @@ const policyPatchSchema = z
     quiet_days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
     timezone: z.string().trim().min(1).max(100).optional(),
     dna_profile_id: z.string().uuid().nullable().optional(),
+    output_languages: z.array(z.enum(['de', 'en'])).min(1).max(2).optional(),
+    product_mention_mode: z.enum(['adaptive', 'include', 'exclude']).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -55,6 +57,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
         quietDays: input.quiet_days,
         timezone: input.timezone,
         dnaProfileId: input.dna_profile_id,
+        outputLanguages: input.output_languages,
+        productMentionMode: input.product_mention_mode,
       },
       userId
     );

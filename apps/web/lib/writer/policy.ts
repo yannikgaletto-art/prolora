@@ -1,5 +1,6 @@
 import { ApiError } from '@/lib/api/http';
 import { getServiceDb, isMissingSchemaError } from '@/lib/db';
+import type { OutputLanguage, ProductMentionMode } from '@/lib/generation/types';
 
 export type WriterWorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 export type WriterPolicyMode = 'approval_required';
@@ -15,6 +16,8 @@ export interface WriterPolicy {
   quietDays: number[];
   timezone: string;
   dnaProfileId: string | null;
+  outputLanguages: OutputLanguage[];
+  productMentionMode: ProductMentionMode;
   policyVersion: number;
 }
 
@@ -30,6 +33,8 @@ export interface WriterPolicyRow {
   quiet_days: number[];
   timezone: string;
   dna_profile_id: string | null;
+  output_languages: OutputLanguage[];
+  product_mention_mode: ProductMentionMode;
   policy_version: number;
   updated_by: string;
   created_at: string;
@@ -52,13 +57,15 @@ export const WRITER_POLICY_COLUMNS = [
   'quiet_days',
   'timezone',
   'dna_profile_id',
+  'output_languages',
+  'product_mention_mode',
   'policy_version',
   'updated_by',
   'created_at',
   'updated_at',
 ].join(', ');
 
-export const DEFAULT_WRITER_POLICY: WriterPolicy = Object.freeze({
+export const DEFAULT_WRITER_POLICY: WriterPolicy = Object.freeze<WriterPolicy>({
   enabled: false,
   mode: 'approval_required',
   allowedConnectionIds: [],
@@ -69,6 +76,8 @@ export const DEFAULT_WRITER_POLICY: WriterPolicy = Object.freeze({
   quietDays: [],
   timezone: 'Europe/Berlin',
   dnaProfileId: null,
+  outputLanguages: ['de'],
+  productMentionMode: 'adaptive',
   policyVersion: 1,
 });
 
@@ -98,6 +107,8 @@ export function policyFromRow(row: WriterPolicyRow): WriterPolicy {
     quietDays: [...row.quiet_days],
     timezone: row.timezone,
     dnaProfileId: row.dna_profile_id,
+    outputLanguages: [...row.output_languages],
+    productMentionMode: row.product_mention_mode,
     policyVersion: row.policy_version,
   };
 }
@@ -180,6 +191,7 @@ export async function getWriterPolicy(workspaceId: string): Promise<WriterPolicy
         allowedConnectionIds: [],
         contentMix: {},
         quietDays: [],
+        outputLanguages: ['de'],
       };
 }
 
@@ -255,6 +267,11 @@ export async function updateWriterPolicy(
     timezone: patch.timezone ?? current.timezone,
     dnaProfileId:
       patch.dnaProfileId === undefined ? current.dnaProfileId : patch.dnaProfileId,
+    outputLanguages:
+      patch.outputLanguages === undefined
+        ? current.outputLanguages
+        : [...new Set(patch.outputLanguages)],
+    productMentionMode: patch.productMentionMode ?? current.productMentionMode,
     policyVersion: current.policyVersion + 1,
   };
 
@@ -290,5 +307,26 @@ export async function updateWriterPolicy(
   if (error) throwWriterDbError(error, 'policy update');
   const row = (Array.isArray(data) ? data[0] : data) as WriterPolicyRow | null;
   if (!row) throwWriterDbError(null, 'policy update');
+  if (
+    next.outputLanguages.join(',') !== current.outputLanguages.join(',') ||
+    next.productMentionMode !== current.productMentionMode
+  ) {
+    const narrativeResult = await db.rpc('update_writer_policy_narrative_atomic', {
+      p_workspace_id: workspaceId,
+      p_expected_version: row.policy_version,
+      p_output_languages: next.outputLanguages,
+      p_product_mention_mode: next.productMentionMode,
+      p_updated_by: updatedBy,
+    });
+    if (narrativeResult.error?.code === '40001') {
+      throw new ApiError(409, 'The Writer policy changed concurrently.', 'writer_policy_changed');
+    }
+    if (narrativeResult.error) throwWriterDbError(narrativeResult.error, 'narrative policy update');
+    const narrativeRow = (Array.isArray(narrativeResult.data)
+      ? narrativeResult.data[0]
+      : narrativeResult.data) as WriterPolicyRow | null;
+    if (!narrativeRow) throwWriterDbError(null, 'narrative policy update');
+    return policyFromRow(narrativeRow);
+  }
   return policyFromRow(row);
 }

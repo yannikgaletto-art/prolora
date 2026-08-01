@@ -25,6 +25,8 @@ describe('Writer policy defaults', () => {
       quietDays: [],
       timezone: 'Europe/Berlin',
       dnaProfileId: null,
+      outputLanguages: ['de'],
+      productMentionMode: 'adaptive',
       policyVersion: 1,
     });
   });
@@ -42,6 +44,8 @@ describe('Writer policy defaults', () => {
       quiet_days: [0, 6],
       timezone: 'UTC',
       dna_profile_id: 'dna-1',
+      output_languages: ['de', 'en'],
+      product_mention_mode: 'exclude',
       policy_version: 4,
       updated_by: 'user-1',
       created_at: '2026-07-30T12:00:00.000Z',
@@ -53,6 +57,8 @@ describe('Writer policy defaults', () => {
       mode: 'approval_required',
       allowedConnectionIds: ['connection-1'],
       dailyPostCap: 2,
+      outputLanguages: ['de', 'en'],
+      productMentionMode: 'exclude',
       policyVersion: 4,
     });
     expect(policyFromRow(row)).not.toHaveProperty('workspace_id');

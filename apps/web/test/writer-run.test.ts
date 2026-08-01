@@ -17,6 +17,8 @@ const policy: WriterRunPolicy = {
   quietDays: [],
   timezone: 'Europe/Berlin',
   dnaProfileId: 'dna-1',
+  outputLanguages: ['de'],
+  productMentionMode: 'adaptive',
   policyVersion: 2,
 };
 
