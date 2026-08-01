@@ -16,12 +16,30 @@
 import type { AppLocale, PlatformType } from '@prolora/shared';
 import { runDeterministicChecks } from '@/lib/scoring/deterministic';
 import { getPlatformRules } from '@/lib/validation/platform-rules';
+import { runNarrativeChecks, type NarrativeGateContext } from './narrative-judge';
 
 // --- Vertrag C4 (§4.2) ----------------------------------------------------
 
-export type GateCheck = 'proof_binding' | 'structure' | 'deterministic' | 'self_similarity';
+export type GateCheck =
+  | 'proof_binding'
+  | 'language'
+  | 'mention'
+  | 'sample_copy'
+  | 'narrative_consistency'
+  | 'structure'
+  | 'deterministic'
+  | 'self_similarity';
 
-export type GateRemedy = 'add_proof' | 'rewrite_structure' | 'shorten' | 'differentiate' | null;
+export type GateRemedy =
+  | 'add_proof'
+  | 'rewrite_structure'
+  | 'shorten'
+  | 'differentiate'
+  | 'correct_language'
+  | 'remove_mention'
+  | 'place_mention'
+  | 'needs_input'
+  | null;
 
 /** Erweiterung über C4 hinaus — siehe Datei-Header. */
 export type GateFindingStatus = 'passed' | 'failed' | 'skipped';
@@ -785,6 +803,7 @@ export interface GateInput {
   thresholds?: GateThresholdOverrides;
   /** Nur setzen, wenn tatsächlich protokolliert übersteuert wurde. */
   overriddenBy?: string | null;
+  narrative?: NarrativeGateContext;
 }
 
 /**
@@ -797,14 +816,31 @@ export async function runQualityGate(input: GateInput): Promise<GateResult> {
   const locale = input.locale ?? 'de';
   const findings: GateFinding[] = [];
 
+  const factProofs: GateProofAsset[] = (input.narrative?.facts ?? []).map((fact) => ({
+    id: fact.id,
+    type: fact.factKind,
+    content: 'number' in fact.value
+      ? `${fact.value.number}${fact.unit ? ` ${fact.unit}` : ''}`
+      : 'text' in fact.value ? fact.value.text : String(fact.value.boolean),
+  }));
   const proof = checkProofBinding({
     content: input.content,
-    proofAssets: input.proofAssets,
+    proofAssets: [...input.proofAssets, ...factProofs],
     locale,
     thresholds,
   });
   findings.push(proof);
   if (proof.status === 'failed') return conclude(findings, input.overriddenBy ?? null);
+
+  let requiredCheckSkipped = false;
+  if (input.narrative) {
+    const narrative = await runNarrativeChecks(input.content, input.narrative);
+    findings.push(...narrative.findings);
+    requiredCheckSkipped = narrative.requiredCheckSkipped;
+    if (narrative.findings.some((entry) => entry.status === 'failed')) {
+      return conclude(findings, input.overriddenBy ?? null, requiredCheckSkipped);
+    }
+  }
 
   const structure = checkStructure({ structure: input.structure, locale, thresholds });
   findings.push(structure);
@@ -828,14 +864,18 @@ export async function runQualityGate(input: GateInput): Promise<GateResult> {
   });
   findings.push(similarity);
 
-  return conclude(findings, input.overriddenBy ?? null);
+  return conclude(findings, input.overriddenBy ?? null, requiredCheckSkipped);
 }
 
-function conclude(findings: GateFinding[], overriddenBy: string | null): GateResult {
+function conclude(
+  findings: GateFinding[],
+  overriddenBy: string | null,
+  requiredCheckSkipped = false
+): GateResult {
   const blocked = findings.some((entry) => entry.status === 'failed');
   return {
     // Übersteuern ist nur mit protokolliertem Verursacher möglich (D1).
-    passed: !blocked || Boolean(overriddenBy),
+    passed: (!blocked && !requiredCheckSkipped) || Boolean(overriddenBy),
     findings,
     overriddenBy,
   };
@@ -856,12 +896,20 @@ export interface GateStats {
 export function summarizeGateResults(results: GateResult[]): GateStats {
   const blockedBy: Record<GateCheck, number> = {
     proof_binding: 0,
+    language: 0,
+    mention: 0,
+    sample_copy: 0,
+    narrative_consistency: 0,
     structure: 0,
     deterministic: 0,
     self_similarity: 0,
   };
   const skipped: Record<GateCheck, number> = {
     proof_binding: 0,
+    language: 0,
+    mention: 0,
+    sample_copy: 0,
+    narrative_consistency: 0,
     structure: 0,
     deterministic: 0,
     self_similarity: 0,

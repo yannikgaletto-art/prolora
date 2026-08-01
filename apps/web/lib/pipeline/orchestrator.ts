@@ -912,8 +912,8 @@ export async function loadCockpit(workspaceId: string, now: Date = new Date()): 
     passed: 0,
     blocked: 0,
     overridden: 0,
-    blockedBy: { proof_binding: 0, structure: 0, deterministic: 0, self_similarity: 0 },
-    skipped: { proof_binding: 0, structure: 0, deterministic: 0, self_similarity: 0 },
+    blockedBy: { proof_binding: 0, language: 0, mention: 0, sample_copy: 0, narrative_consistency: 0, structure: 0, deterministic: 0, self_similarity: 0 },
+    skipped: { proof_binding: 0, language: 0, mention: 0, sample_copy: 0, narrative_consistency: 0, structure: 0, deterministic: 0, self_similarity: 0 },
   };
   for (const item of items) {
     const stats = (item.gate_result as { stats?: GateStats } | null)?.stats;
