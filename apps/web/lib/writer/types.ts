@@ -21,6 +21,11 @@ export interface ContentSampleRow {
   origin: ContentSampleOrigin;
   platform: string | null;
   content: string;
+  category: string | null;
+  hook_type: string | null;
+  content_format: string | null;
+  masked_content: string | null;
+  metadata: Record<string, CanonicalJsonValue>;
   source_post_item_id: string | null;
   source_url: string | null;
   label: string | null;
@@ -97,6 +102,12 @@ export interface ContentDnaAnalysis {
 export interface SampleSetHashInput {
   kind: ContentSampleKind;
   contentHash: string;
+  maskedContentHash?: string;
+  platform?: string | null;
+  category?: string | null;
+  hookType?: string | null;
+  contentFormat?: string | null;
+  active?: boolean;
 }
 
 export type CanonicalJsonValue =
@@ -115,6 +126,11 @@ export const CONTENT_SAMPLE_ROW_COLUMNS = [
   'origin',
   'platform',
   'content',
+  'category',
+  'hook_type',
+  'content_format',
+  'masked_content',
+  'metadata',
   'source_post_item_id',
   'source_url',
   'label',

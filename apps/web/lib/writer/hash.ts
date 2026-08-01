@@ -28,8 +28,15 @@ export function hashCanonicalJson(value: CanonicalJsonValue): string {
 }
 
 export function hashSampleSet(samples: readonly SampleSetHashInput[]): string {
-  const uniqueMembers = [
-    ...new Set(samples.map((sample) => `${sample.kind}:${sample.contentHash}`)),
-  ].sort();
+  const uniqueMembers = [...new Set(samples.map((sample) => canonicalJson({
+    active: sample.active ?? true,
+    category: sample.category ?? null,
+    contentFormat: sample.contentFormat ?? null,
+    contentHash: sample.contentHash,
+    hookType: sample.hookType ?? null,
+    kind: sample.kind,
+    maskedContentHash: sample.maskedContentHash ?? null,
+    platform: sample.platform ?? null,
+  })))].sort();
   return hashCanonicalJson(uniqueMembers);
 }

@@ -31,10 +31,19 @@ const FIRST_PERSON_WORDS = new Set([
   'our',
   'ours',
   'ourselves',
+  'ich',
+  'mich',
+  'mir',
+  'mein',
+  'meine',
+  'wir',
+  'uns',
+  'unser',
+  'unsere',
 ]);
 
 const CTA_PATTERN =
-  /\b(join|subscribe|follow|share|comment|reply|download|book|try|start|sign up|learn more|tell me|let me know)\b/iu;
+  /\b(join|subscribe|follow|share|comment|reply|download|book|try|start|sign up|learn more|tell me|let me know|folgen?|teilt?|kommentiert?|antwortet?|sagt mir|was meint ihr|wie seht ihr)\b/iu;
 const LIST_PATTERN = /(?:^|\n)\s*(?:[-*•]|\d+[.)])\s+\S/u;
 
 const NEUTRAL_PROFILE: ContentDnaProfile = {
@@ -251,11 +260,18 @@ export function analyzeContentDna(
   const derivedRules = derivePromptRules(profile, level).filter(
     (rule) => !lockedKeys.has(rule.key)
   );
+  const avoidRules: DnaPromptRule[] = samples
+    .filter((sample) => sample.kind === 'avoid' && sample.active !== false && sample.content.trim())
+    .map((sample, index) => ({
+      key: `avoid_${index + 1}`,
+      instruction: `Never imitate this rejected pattern: ${sample.content.trim().slice(0, 240)}`,
+      locked: false,
+    }));
 
   return {
     profile,
     confidence,
-    promptRules: [...derivedRules, ...preservedLockedRules],
+    promptRules: [...derivedRules, ...avoidRules, ...preservedLockedRules],
     lockedRules: preservedLockedRules,
     sampleCount,
   };
