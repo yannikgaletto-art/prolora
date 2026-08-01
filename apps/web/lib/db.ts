@@ -159,6 +159,7 @@ export const POST_ITEM_ROW_COLUMNS = [
   'id', 'post_group_id', 'connection_id', 'platform', 'adapted_content',
   'resolved_content', 'media', 'status', 'platform_post_id', 'platform_url',
   'published_at', 'error_message', 'metrics', 'metrics_updated_at', 'created_at',
+  'qa_context',
 ].join(', ');
 
 export interface ImpactPredictionRow {

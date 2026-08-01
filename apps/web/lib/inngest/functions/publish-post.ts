@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NonRetriableError } from 'inngest';
 import { inngest } from '../client';
 import { CONNECTION_ROW_COLUMNS, POST_ITEM_ROW_COLUMNS, getServiceDb, type ConnectionRow, type PostGroupRow, type PostItemRow, type MediaRef } from '@/lib/db';
+import { assertAiPostQaFreshForWorkspace } from '@/lib/pipeline/ai-post-qa';
 import { getValidToken, refreshConnectionToken } from '@/lib/auth/token-manager';
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type MediaAttachment, type RateLimitInfo } from '@/lib/adapters/types';
@@ -687,6 +688,12 @@ export async function publishAttempt(
   connection: ConnectionRow,
   workspaceId: string
 ): Promise<PublishAttemptResult> {
+  await assertAiPostQaFreshForWorkspace({
+    workspaceId,
+    platform: item.platform,
+    resolvedContent: item.resolved_content ?? item.adapted_content ?? group.original_content,
+    qaContext: item.qa_context,
+  });
   const adapter = createAdapter(connection.platform);
 
   // Media: storage keys -> per-platform variant -> FRESH signed URLs (R2).

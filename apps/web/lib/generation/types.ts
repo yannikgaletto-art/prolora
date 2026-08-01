@@ -22,6 +22,7 @@ export interface PublishedHistoryEntry {
 export interface GenerationContext {
   language: OutputLanguage;
   platform: string;
+  category?: string | null;
   asOf: string;
   samples: RetrievedGoldenSample[];
   facts: ConfirmedFact[];

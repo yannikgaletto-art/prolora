@@ -6,6 +6,7 @@ import { getServiceDb, type PostGroupRow, type PostItemRow } from '@/lib/db';
 import { validateScheduledAt } from '@/lib/validation/pipeline';
 import { assertPostQuota } from '@/lib/posts/create-post';
 import { inngest } from '@/lib/inngest/client';
+import { assertAiPostQaFreshForWorkspace } from '@/lib/pipeline/ai-post-qa';
 
 // PATCH /api/v1/posts/:id/schedule — the calendar's reschedule/convert action
 // (GOAL-RUN6 Phase 2). Two modes:
@@ -62,6 +63,14 @@ export async function PATCH(
         'Nothing left to reschedule — all items are published or deleted.',
         'immutable'
       );
+    }
+    for (const item of mutable) {
+      await assertAiPostQaFreshForWorkspace({
+        workspaceId,
+        platform: item.platform,
+        resolvedContent: item.resolved_content ?? item.adapted_content ?? group.original_content,
+        qaContext: item.qa_context,
+      });
     }
 
     // Converting drafts into publishable items is the quota-relevant moment

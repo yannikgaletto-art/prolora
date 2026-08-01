@@ -82,6 +82,7 @@ export interface WriterReviewSnapshot {
     language: OutputLanguage;
     contexts: Array<{
       platform: string;
+      category?: string | null;
       factsHash: string;
       sampleHash: string;
       factIds: string[];

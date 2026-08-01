@@ -574,6 +574,7 @@ export async function executeWriterRun(
       language,
       contexts: contexts.map((context) => ({
         platform: context.platform,
+        category: context.category,
         factsHash: context.factsHash,
         sampleHash: context.sampleHash,
         factIds: context.facts.map((fact) => fact.id),

@@ -120,7 +120,7 @@ export async function resolveGenerationContext(
   ]);
   const samples = retrieveGoldenSamples(allSamples, {
     platform: input.platform,
-    category: input.category,
+    category: input.category ?? null,
     recentSampleIds: input.recentSampleIds,
   });
   const mention = decideProductMention({
@@ -151,6 +151,7 @@ export async function resolveGenerationContext(
   return {
     language: input.language,
     platform: input.platform,
+    category: input.category ?? null,
     asOf: input.asOf,
     samples,
     facts,
