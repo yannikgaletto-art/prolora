@@ -21,6 +21,7 @@ import { unicodeBold } from './post-preview';
 import type { FeatureState } from '@/lib/system/doctor';
 import { getRun7Dict } from '@/lib/i18n/run7';
 import { ImpactPredictionCard } from './ImpactPredictionCard';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from './writer/GenerationPreflight';
 
 /** Wizard chrome strings the server page resolves via lib/i18n (GOAL-RUN5). */
 export interface ComposerWizardStrings {
@@ -65,6 +66,8 @@ export function PostComposer({
   const [content, setContent] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adaptContent, setAdaptContent] = useState(false);
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
   const [scheduleMode, setScheduleMode] = useState<'now' | 'schedule'>('now');
   const [scheduledAt, setScheduledAt] = useState('');
   const [scheduledTimezone, setScheduledTimezone] = useState('');
@@ -222,8 +225,8 @@ export function PostComposer({
       connection_overrides:
         Object.keys(connectionOverrides).length > 0 ? connectionOverrides : undefined,
       adapt_content: adaptContent || undefined,
-      output_language: adaptContent ? (locale === 'de' ? 'de' : 'en') : undefined,
-      product_mention_mode: adaptContent ? 'adaptive' : undefined,
+      output_language: adaptContent ? (outputLanguage === 'en' ? 'en' : 'de') : undefined,
+      product_mention_mode: adaptContent ? mentionMode : undefined,
       scheduled_at: scheduledAtIso,
       scheduled_tz: scheduledAtIso
         ? scheduledTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -614,6 +617,9 @@ export function PostComposer({
               </span>
             </span>
           </label>
+          {adaptContent && (
+            <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} locale={locale} disabled={submitting} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+          )}
           <label className="flex items-start gap-3">
             <input type="checkbox" checked={unicodeBoldEnabled} onChange={(event) => setUnicodeBoldEnabled(event.target.checked)} className="mt-0.5 h-4 w-4 rounded text-primary-600" />
             <span>

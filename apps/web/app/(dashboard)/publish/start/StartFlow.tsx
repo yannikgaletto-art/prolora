@@ -177,7 +177,7 @@ export function StartFlow({ locale, workspaceName, productDescription }: Props) 
 
   return (
     <div className="flex flex-col gap-4">
-      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={generating} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} locale={locale} disabled={generating} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <Card title={workspaceName} description={productDescription ?? copy.start_no_profile}>
         <div className="flex flex-wrap items-center gap-3">
           <Link

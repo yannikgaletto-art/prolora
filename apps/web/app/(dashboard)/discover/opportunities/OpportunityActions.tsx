@@ -8,6 +8,7 @@ import { Textarea } from '@/app/components/Input';
 import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { OpportunityThreadRow } from '@/lib/db';
+import type { AppLocale } from '@prolora/shared';
 import type { FeatureState } from '@/lib/system/doctor';
 import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from '../../publish/writer/GenerationPreflight';
 
@@ -30,6 +31,7 @@ export interface OpportunityActionsProps {
   status: OpportunityThreadRow['status'];
   initialDraft: string | null;
   aiState: FeatureState;
+  locale: AppLocale;
 }
 
 // Client island: no synchronous "post it for me" route exists (Invariante
@@ -38,7 +40,7 @@ export interface OpportunityActionsProps {
 // A "Skip" button was considered and dropped — there is no route that PATCHes
 // opportunity_threads.status to an arbitrary value, only POST /:id/confirm
 // which hard-codes status to 'posted'.
-export function OpportunityActions({ opportunityId, status, initialDraft, aiState }: OpportunityActionsProps) {
+export function OpportunityActions({ opportunityId, status, initialDraft, aiState, locale }: OpportunityActionsProps) {
   const router = useRouter();
   const [draftOpen, setDraftOpen] = useState(false);
   const [drafting, setDrafting] = useState(false);
@@ -46,7 +48,7 @@ export function OpportunityActions({ opportunityId, status, initialDraft, aiStat
   const [ruleWarnings, setRuleWarnings] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
-  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
   const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
 
   const canAct = status === 'new' || status === 'drafted';
@@ -107,7 +109,7 @@ export function OpportunityActions({ opportunityId, status, initialDraft, aiStat
 
   return (
     <>
-      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={drafting} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} locale={locale} disabled={drafting} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <div className="flex gap-2">
         <Button variant="secondary" size="sm" onClick={handleDraft} loading={drafting} disabled={aiState.state !== 'ready'} title={aiState.state === 'ready' ? undefined : aiState.hint}>
           {status === 'drafted' ? 'Re-draft Reply' : 'Draft Reply'}

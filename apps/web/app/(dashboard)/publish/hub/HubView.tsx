@@ -6,7 +6,7 @@
 // the calendar or is handed to the composer. Nothing auto-publishes.
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PlatformType, SplinterSuggestion } from '@prolora/shared';
+import type { AppLocale, PlatformType, SplinterSuggestion } from '@prolora/shared';
 import { Button } from '@/app/components/Button';
 import { Card } from '@/app/components/Card';
 import { Input } from '@/app/components/Input';
@@ -60,7 +60,7 @@ const PLATFORM_LABELS: Record<PlatformType, string> = {
   hashnode: 'Hashnode',
 };
 
-export function HubView({ connections, aiState }: { connections: HubConnection[]; aiState: FeatureState }) {
+export function HubView({ connections, aiState, locale }: { connections: HubConnection[]; aiState: FeatureState; locale: AppLocale }) {
   const router = useRouter();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -85,7 +85,7 @@ export function HubView({ connections, aiState }: { connections: HubConnection[]
   const [scoringDraft, setScoringDraft] = useState<number | null>(null);
   const [checksByDraft, setChecksByDraft] = useState<Record<number, { formatting_score: number; platform_hygiene_score: number }>>({});
   const [impactByDraft, setImpactByDraft] = useState<Record<number, number>>({});
-  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
   const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
 
   function connectionsFor(platform: PlatformType): HubConnection[] {
@@ -226,7 +226,7 @@ export function HubView({ connections, aiState }: { connections: HubConnection[]
 
   return (
     <div className="space-y-6">
-      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={splintering} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} locale={locale} disabled={splintering} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <Card>
         <h2 className="text-sm font-semibold text-gray-900">Pillar-Content</h2>
         <p className="mt-1 text-xs text-gray-500">

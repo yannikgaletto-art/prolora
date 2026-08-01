@@ -46,7 +46,7 @@ export default async function WriterPage() {
   return (
     <div className="space-y-6">
       <PublishTabs active="writer" />
-      <WriterView copy={copy} initialData={data} />
+      <WriterView copy={copy} initialData={data} locale={locale} />
     </div>
   );
 }

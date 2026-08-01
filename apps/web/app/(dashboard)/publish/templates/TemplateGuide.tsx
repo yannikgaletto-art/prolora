@@ -562,7 +562,7 @@ export function TemplateGuide({
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
       {state.step === 4 && !showPreview && (
-        <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={Boolean(generating)} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+        <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} locale={locale} disabled={Boolean(generating)} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       )}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

@@ -14,6 +14,7 @@ import {
   type WriterUiData,
 } from './writer-model';
 import type { WriterCopy } from './writer-copy';
+import type { AppLocale } from '@prolora/shared';
 import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from './GenerationPreflight';
 
 const WRITER_SECTIONS: readonly WriterSection[] = ['today', 'dna', 'history'];
@@ -37,9 +38,11 @@ interface Notice {
 export function WriterView({
   copy,
   initialData,
+  locale,
 }: {
   copy: WriterCopy;
   initialData: WriterUiData;
+  locale: AppLocale;
 }) {
   const router = useRouter();
   const [section, setSection] = useState<WriterSection>('today');
@@ -48,7 +51,7 @@ export function WriterView({
   const [enabled, setEnabled] = useState(initialData.policy.enabled);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
   const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
   const tabRefs = useRef<Record<WriterSection, HTMLButtonElement | null>>({
     today: null,
@@ -474,6 +477,7 @@ export function WriterView({
           <GenerationPreflight
             language={outputLanguage}
             mention={mentionMode}
+            locale={locale}
             disabled={busy !== null}
             onLanguageChange={setOutputLanguage}
             onMentionChange={setMentionMode}
