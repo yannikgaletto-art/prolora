@@ -16,6 +16,8 @@ export const writerRun = inngest.createFunction(
       runWriter({
         workspaceId: event.data.workspaceId,
         mode: event.data.mode,
+        languages: event.data.outputLanguages,
+        productMentionMode: event.data.productMentionMode,
       })
     )
 );

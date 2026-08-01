@@ -11,6 +11,8 @@ export type ProloraEvents = {
       workspaceId: string;
       mode: 'normal' | 'shadow';
       requestedBy: string;
+      outputLanguages?: Array<'de' | 'en'>;
+      productMentionMode?: 'adaptive' | 'include' | 'exclude';
     };
   };
   'post/publish': { data: { postItemId: string; workspaceId: string } };

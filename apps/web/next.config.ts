@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   // eingetragen; @resvg/resvg-js (SVG->PNG für die Bild-Templates, Plan 2 /
   // 2A.6) ist derselbe Fall und muss zur Laufzeit aufgelöst werden.
   serverExternalPackages: ['sharp', '@resvg/resvg-js'],
+  outputFileTracingIncludes: {
+    '/api/v1/writer/samples/import': ['../../golden-samples/**/*.md'],
+  },
 };
 
 export default nextConfig;

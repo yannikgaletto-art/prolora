@@ -28,6 +28,11 @@ const CONTENT_SAMPLE_SAFE_COLUMNS = [
   'origin',
   'platform',
   'content',
+  'category',
+  'hook_type',
+  'content_format',
+  'masked_content',
+  'metadata',
   'source_post_item_id',
   'source_url',
   'label',
@@ -43,6 +48,10 @@ export interface ContentSampleDto {
   origin: ContentSampleOrigin;
   platform: string | null;
   content: string;
+  category: string | null;
+  hook_type: string | null;
+  content_format: string | null;
+  metadata: Record<string, unknown>;
   source_post_item_id: string | null;
   source_url: string | null;
   label: string | null;
@@ -79,6 +88,10 @@ function sampleDto(row: ContentSampleRow): ContentSampleDto {
     origin: row.origin,
     platform: row.platform,
     content: row.content,
+    category: row.category,
+    hook_type: row.hook_type,
+    content_format: row.content_format,
+    metadata: row.metadata,
     source_post_item_id: row.source_post_item_id,
     source_url: row.source_url,
     label: row.label,
@@ -280,7 +293,7 @@ export async function getContentDna(
     fallback: analyzeContentDna(
       samples.map((sample) => ({
         kind: sample.kind,
-        content: sample.content,
+        content: sample.masked_content ?? sample.content,
         active: sample.active,
       }))
     ),
@@ -294,7 +307,7 @@ export async function rebuildContentDna(workspaceId: string): Promise<ContentDna
   const analysis = analyzeContentDna(
     samples.map((sample) => ({
       kind: sample.kind,
-      content: sample.content,
+      content: sample.masked_content ?? sample.content,
       active: sample.active,
     })),
     lockedRules
@@ -303,6 +316,15 @@ export async function rebuildContentDna(workspaceId: string): Promise<ContentDna
     samples.map((sample) => ({
       kind: sample.kind,
       contentHash: sample.content_hash,
+      maskedContentHash:
+        typeof sample.metadata.maskedContentHash === 'string'
+          ? sample.metadata.maskedContentHash
+          : sample.masked_content ? sha256Hex(sample.masked_content) : undefined,
+      platform: sample.platform,
+      category: sample.category,
+      hookType: sample.hook_type,
+      contentFormat: sample.content_format,
+      active: sample.active,
     }))
   );
   const sampleSetMembers = samples
@@ -314,14 +336,14 @@ export async function rebuildContentDna(workspaceId: string): Promise<ContentDna
     p_workspace_id: workspaceId,
     p_sample_set_members: sampleSetMembers,
     p_sample_set_hash: sampleSetHash,
-    p_schema_version: 'content-dna-v1',
+    p_schema_version: 'content-dna-v2',
     p_profile: analysis.profile,
     p_confidence: analysis.confidence,
     p_prompt_rules: analysis.promptRules,
     p_locked_rules: lockedRules,
     p_sample_count: analysis.sampleCount,
     p_model: 'deterministic-v1',
-    p_prompt_version: 'writer-dna-v1',
+    p_prompt_version: 'writer-dna-v2',
   });
   if (error) throwRpcError('DNA profile rebuild failed', rpcName, error);
   const activated = singleRpcRow<ContentDnaProfileRow>(data);

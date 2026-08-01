@@ -29,13 +29,15 @@ export function ContentDnaPanel({
   busy,
   onAddSample,
   onRebuild,
+  onImportBundle,
 }: {
   dna: WriterDna;
   copy: WriterCopy;
   disabled: boolean;
-  busy?: 'sample' | 'rebuild' | null;
+  busy?: 'sample' | 'rebuild' | 'import' | null;
   onAddSample?: (input: AddWriterSampleInput) => Promise<void>;
   onRebuild?: () => Promise<void>;
+  onImportBundle?: () => Promise<void>;
 }) {
   const [kind, setKind] = useState<WriterSampleKind>('golden');
   const [origin, setOrigin] = useState<WriterSampleOrigin>('pasted');
@@ -93,16 +95,28 @@ export function ContentDnaPanel({
                   {copy.dna.subtitle}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                loading={busy === 'rebuild'}
-                disabled={disabled || dna.goldenSampleCount < 3}
-                onClick={() => void onRebuild?.()}
-                className="min-h-11 shrink-0"
-              >
-                {busy === 'rebuild' ? copy.dna.rebuilding : copy.dna.rebuild}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={busy === 'import'}
+                  disabled={disabled || Boolean(busy)}
+                  onClick={() => void onImportBundle?.()}
+                  className="min-h-11 shrink-0"
+                >
+                  12 Golden Samples importieren
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={busy === 'rebuild'}
+                  disabled={disabled || dna.goldenSampleCount < 3}
+                  onClick={() => void onRebuild?.()}
+                  className="min-h-11 shrink-0"
+                >
+                  {busy === 'rebuild' ? copy.dna.rebuilding : copy.dna.rebuild}
+                </Button>
+              </div>
             </div>
           </div>
 

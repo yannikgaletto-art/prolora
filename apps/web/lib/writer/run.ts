@@ -282,6 +282,7 @@ export async function executeWriterRun(
     mode: WriterRunMode;
     language?: OutputLanguage;
     generationGroupId?: string;
+    mentionMode?: WriterRunPolicy['productMentionMode'];
   },
   dependencies: WriterRunDependencies,
   now: Date = new Date()
@@ -369,7 +370,7 @@ export async function executeWriterRun(
             platform,
             category: mixBucket,
             asOf: now.toISOString(),
-            mentionMode: policy.productMentionMode,
+            mentionMode: input.mentionMode ?? policy.productMentionMode,
             productRelevant:
               signal.evidence.proofAssetIds.length > 0 || /\bpathly\b/iu.test(signal.title),
             communityRulesKnown: !['reddit', 'discord'].includes(platform),
@@ -904,19 +905,34 @@ const defaultDependencies: WriterRunDependencies = {
 };
 
 export async function runWriter(
-  input: { workspaceId: string; mode: WriterRunMode },
+  input: {
+    workspaceId: string;
+    mode: WriterRunMode;
+    languages?: OutputLanguage[];
+    productMentionMode?: WriterRunPolicy['productMentionMode'];
+  },
   now: Date = new Date()
 ): Promise<WriterRunResult[]> {
   const policy = await getWriterPolicy(input.workspaceId);
   return executeWriterLanguages(
-    { ...input, languages: policy.outputLanguages },
+    {
+      workspaceId: input.workspaceId,
+      mode: input.mode,
+      languages: input.languages ?? policy.outputLanguages,
+      mentionMode: input.productMentionMode,
+    },
     defaultDependencies,
     now
   );
 }
 
 export async function executeWriterLanguages(
-  input: { workspaceId: string; mode: WriterRunMode; languages: OutputLanguage[] },
+  input: {
+    workspaceId: string;
+    mode: WriterRunMode;
+    languages: OutputLanguage[];
+    mentionMode?: WriterRunPolicy['productMentionMode'];
+  },
   dependencies: WriterRunDependencies,
   now: Date = new Date(),
   generationGroupId = randomUUID()
@@ -924,7 +940,13 @@ export async function executeWriterLanguages(
   const results: WriterRunResult[] = [];
   for (const language of [...new Set(input.languages)]) {
     results.push(await executeWriterRun(
-      { workspaceId: input.workspaceId, mode: input.mode, language, generationGroupId },
+      {
+        workspaceId: input.workspaceId,
+        mode: input.mode,
+        language,
+        generationGroupId,
+        mentionMode: input.mentionMode,
+      },
       dependencies,
       now
     ));

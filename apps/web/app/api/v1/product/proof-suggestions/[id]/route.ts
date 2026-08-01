@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { authenticate } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError } from '@/lib/api/http';
 import { acceptProofSuggestion, rejectProofSuggestion } from '@/lib/feedback/proof-extraction';
+import { confirmFactSuggestion } from '@/lib/product/facts';
+import { requireWriterOwnerOrAdmin } from '@/lib/writer/policy';
 
 // POST /api/v1/product/proof-suggestions/[id] (Plan 2 / 2A.3).
 //
@@ -17,7 +19,7 @@ import { acceptProofSuggestion, rejectProofSuggestion } from '@/lib/feedback/pro
 const idSchema = z.string().uuid();
 
 const bodySchema = z.object({
-  decision: z.enum(['accept', 'reject']),
+  decision: z.enum(['accept', 'confirm_fact', 'reject']),
   consent_reference: z.string().trim().min(3).max(300).nullish(),
 });
 
@@ -43,6 +45,12 @@ export async function POST(
       const rejected = await rejectProofSuggestion(auth.workspaceId, parsedId.data, auth.userId);
       if (!rejected) return jsonError(404, 'Proof-Vorschlag nicht gefunden.', 'not_found');
       return NextResponse.json({ status: 'rejected' });
+    }
+
+    if (input.decision === 'confirm_fact') {
+      const manager = await requireWriterOwnerOrAdmin(auth);
+      const fact = await confirmFactSuggestion(auth.workspaceId, parsedId.data, manager.userId);
+      return NextResponse.json({ status: 'accepted', fact }, { status: 201 });
     }
 
     const result = await acceptProofSuggestion(auth.workspaceId, parsedId.data, {

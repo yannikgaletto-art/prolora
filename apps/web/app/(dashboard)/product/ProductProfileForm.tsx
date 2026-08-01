@@ -3,7 +3,7 @@
 // Product setup form (GOAL-RUN9 §6 T0.3 — spec screen 2). Voice-first: every
 // long text field carries the browser dictation from the template wizard.
 // ProofAssets save immediately (own route); profile fields save on the button.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppLocale, ProductProfileResponse, ProofAsset, ProofAssetType } from '@prolora/shared';
 import { Button } from '@/app/components/Button';
 import { Card } from '@/app/components/Card';
@@ -11,6 +11,7 @@ import { Textarea } from '@/app/components/Input';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import { useSpeechInput } from '../publish/templates/useSpeechInput';
 import { getProductCopy } from '@/lib/i18n/product';
+import type { ConfirmedFact, FactDirectionPolicy } from '@/lib/product/facts';
 
 const PROOF_TYPES: ProofAssetType[] = [
   'metric',
@@ -44,6 +45,19 @@ export function ProductProfileForm({ initialProfile, locale, workspaceName }: Pr
   const [newAssetContent, setNewAssetContent] = useState('');
   const [assetState, setAssetState] = useState<'idle' | 'saving' | 'error'>('idle');
   const [assetError, setAssetError] = useState('');
+  const [facts, setFacts] = useState<ConfirmedFact[]>([]);
+  const [factKey, setFactKey] = useState('pathly.');
+  const [factValue, setFactValue] = useState('');
+  const [factUnit, setFactUnit] = useState('');
+  const [factPolicy, setFactPolicy] = useState<FactDirectionPolicy>('free');
+  const [factChangeReason, setFactChangeReason] = useState('');
+  const [factState, setFactState] = useState<'idle' | 'saving' | 'error'>('idle');
+
+  useEffect(() => {
+    void fetchApi<{ facts: ConfirmedFact[] }>('/v1/product/proof-assets')
+      .then((result) => setFacts(result.facts))
+      .catch(() => undefined);
+  }, []);
 
   function dictateInto(key: string, setter: (updater: (prev: string) => string) => void) {
     if (speech.activeKey === key) {
@@ -126,6 +140,49 @@ export function ProductProfileForm({ initialProfile, locale, workspaceName }: Pr
       setAssets(previous);
       setAssetError(errorMessage(error));
       setAssetState('error');
+    }
+  }
+
+  async function addFact() {
+    if (factKey.trim().length < 3 || !factValue.trim()) return;
+    setFactState('saving');
+    try {
+      const numeric = Number(factValue.replace(',', '.'));
+      const result = await fetchApi<{ fact: ConfirmedFact }>('/v1/product/proof-assets', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: Number.isFinite(numeric) ? 'metric' : 'founder_observation',
+          content: `${factKey.trim()} = ${factValue.trim()}${factUnit.trim() ? ` ${factUnit.trim()}` : ''}`,
+          fact_key: factKey.trim(),
+          fact_kind: Number.isFinite(numeric) ? 'metric' : 'current_state',
+          fact_value: Number.isFinite(numeric) ? { number: numeric } : { text: factValue.trim() },
+          fact_unit: factUnit.trim() || undefined,
+          effective_from: new Date().toISOString(),
+          direction_policy: factPolicy,
+          fact_change_reason: factChangeReason.trim() || undefined,
+        }),
+      });
+      setFacts((current) => [result.fact, ...current.filter((fact) => fact.factKey !== result.fact.factKey)]);
+      setFactValue('');
+      setFactChangeReason('');
+      setFactState('idle');
+    } catch (error) {
+      setAssetError(errorMessage(error));
+      setFactState('error');
+    }
+  }
+
+  async function revokeConfirmedFact(id: string) {
+    try {
+      await fetchApi(`/v1/product/proof-assets/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'revoke' }),
+      });
+      setFacts((current) => current.filter((fact) => fact.id !== id));
+    } catch (error) {
+      setAssetError(errorMessage(error));
     }
   }
 
@@ -258,6 +315,43 @@ export function ProductProfileForm({ initialProfile, locale, workspaceName }: Pr
               ))}
             </ul>
           )}
+        </div>
+      </Card>
+
+      <Card title="Facts & Timeline" description="Bestätigte Fakten sind die einzige Quelle für überprüfbare Aussagen in KI-Posts.">
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-sm font-medium text-gray-700">Fact Key
+              <input className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" value={factKey} onChange={(event) => setFactKey(event.target.value)} placeholder="pathly.users.active" />
+            </label>
+            <label className="text-sm font-medium text-gray-700">Wert
+              <input className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" value={factValue} onChange={(event) => setFactValue(event.target.value)} placeholder="100 oder active" />
+            </label>
+            <label className="text-sm font-medium text-gray-700">Einheit
+              <input className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" value={factUnit} onChange={(event) => setFactUnit(event.target.value)} placeholder="users, EUR, percent" />
+            </label>
+            <label className="text-sm font-medium text-gray-700">Richtungsregel
+              <select className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" value={factPolicy} onChange={(event) => setFactPolicy(event.target.value as FactDirectionPolicy)}>
+                <option value="free">Frei</option>
+                <option value="warn_on_decrease">Rückgang begründen</option>
+                <option value="warn_on_increase">Anstieg begründen</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-gray-700 md:col-span-2">Begründung für eine Änderung
+              <input className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" value={factChangeReason} onChange={(event) => setFactChangeReason(event.target.value)} placeholder="Erforderlich, wenn ein Wert entgegen der Richtungsregel steigt oder fällt" />
+            </label>
+          </div>
+          <Button onClick={addFact} disabled={factState === 'saving' || factKey.trim().length < 3 || !factValue.trim()}>
+            {factState === 'saving' ? 'Bestätige…' : 'Fakt bestätigen'}
+          </Button>
+          <ul className="space-y-2">
+            {facts.map((fact) => (
+              <li key={fact.id} className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3">
+                <div><p className="font-mono text-xs text-gray-500">{fact.factKey}</p><p className="mt-1 text-sm text-gray-900">{JSON.stringify(fact.value)} {fact.unit ?? ''}</p><p className="mt-1 text-xs text-gray-500">Gültig seit {new Date(fact.effectiveFrom).toLocaleString()}</p></div>
+                <button type="button" className="text-xs font-medium text-red-600" onClick={() => void revokeConfirmedFact(fact.id)}>Widerrufen</button>
+              </li>
+            ))}
+          </ul>
         </div>
       </Card>
     </div>

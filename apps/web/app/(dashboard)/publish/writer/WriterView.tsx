@@ -14,6 +14,7 @@ import {
   type WriterUiData,
 } from './writer-model';
 import type { WriterCopy } from './writer-copy';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from './GenerationPreflight';
 
 const WRITER_SECTIONS: readonly WriterSection[] = ['today', 'dna', 'history'];
 type BusyAction =
@@ -25,6 +26,7 @@ type BusyAction =
   | 'reject'
   | 'sample'
   | 'rebuild'
+  | 'import'
   | null;
 
 interface Notice {
@@ -46,6 +48,8 @@ export function WriterView({
   const [enabled, setEnabled] = useState(initialData.policy.enabled);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
   const tabRefs = useRef<Record<WriterSection, HTMLButtonElement | null>>({
     today: null,
     dna: null,
@@ -100,7 +104,12 @@ export function WriterView({
     try {
       await fetchApi('/v1/writer/run', {
         method: 'POST',
-        body: JSON.stringify({ mode: 'shadow', limit: 1 }),
+        body: JSON.stringify({
+          mode: 'shadow',
+          limit: 1,
+          output_languages: outputLanguage === 'both' ? ['de', 'en'] : [outputLanguage],
+          product_mention_mode: mentionMode,
+        }),
       });
       showSuccess(copy.feedback.runStarted);
     } catch (error) {
@@ -285,6 +294,19 @@ export function WriterView({
     }
   }
 
+  async function importBundle() {
+    setBusy('import');
+    setNotice(null);
+    try {
+      await fetchApi('/v1/writer/samples/import', { method: 'POST' });
+      showSuccess('12 Golden Samples wurden sicher importiert. Bitte Content DNA neu aufbauen.');
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function handleSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const next = nextWriterSection(section, event.key, WRITER_SECTIONS);
     if (next === section) return;
@@ -449,6 +471,13 @@ export function WriterView({
           aria-labelledby="writer-tab-today"
           className="space-y-5"
         >
+          <GenerationPreflight
+            language={outputLanguage}
+            mention={mentionMode}
+            disabled={busy !== null}
+            onLanguageChange={setOutputLanguage}
+            onMentionChange={setMentionMode}
+          />
           {!enabled && configured && (
             <div className="flex items-start gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/65 px-4 py-3 text-sm leading-6 text-amber-950">
               <span aria-hidden="true" className="mt-0.5">
@@ -491,6 +520,7 @@ export function WriterView({
           busy={busy === 'sample' || busy === 'rebuild' ? busy : null}
           onAddSample={addSample}
           onRebuild={rebuildDna}
+          onImportBundle={importBundle}
         />
       )}
 

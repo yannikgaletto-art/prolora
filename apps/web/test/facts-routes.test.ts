@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
   requireOwner: vi.fn(),
   confirmFact: vi.fn(),
+  confirmFactSuggestion: vi.fn(),
+  acceptProofSuggestion: vi.fn(),
+  rejectProofSuggestion: vi.fn(),
   listFactsAt: vi.fn(),
   listProofAssets: vi.fn(),
   createProofAsset: vi.fn(),
@@ -17,7 +20,12 @@ vi.mock('@/lib/api/auth-middleware', () => ({
 vi.mock('@/lib/writer/policy', () => ({ requireWriterOwnerOrAdmin: mocks.requireOwner }));
 vi.mock('@/lib/product/facts', () => ({
   confirmFact: mocks.confirmFact,
+  confirmFactSuggestion: mocks.confirmFactSuggestion,
   listFactsAt: mocks.listFactsAt,
+}));
+vi.mock('@/lib/feedback/proof-extraction', () => ({
+  acceptProofSuggestion: mocks.acceptProofSuggestion,
+  rejectProofSuggestion: mocks.rejectProofSuggestion,
 }));
 vi.mock('@/lib/product/profile', () => ({
   listProofAssets: mocks.listProofAssets,
@@ -25,6 +33,7 @@ vi.mock('@/lib/product/profile', () => ({
 }));
 
 import { GET, POST } from '@/app/api/v1/product/proof-assets/route';
+import { POST as decideSuggestion } from '@/app/api/v1/product/proof-suggestions/[id]/route';
 
 const request = (method: string, body?: unknown) => new NextRequest(
   'http://localhost/api/v1/product/proof-assets?as_of=2026-08-01T00:00:00.000Z',
@@ -76,5 +85,17 @@ describe('Facts routes', () => {
     expect(response.status).toBe(200);
     expect(mocks.listFactsAt).toHaveBeenCalledWith('workspace-1', '2026-08-01T00:00:00.000Z');
     await expect(response.json()).resolves.toMatchObject({ facts: [{ id: 'fact-1' }] });
+  });
+
+  test('confirms a structured suggestion atomically as owner/admin', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    mocks.confirmFactSuggestion.mockResolvedValue({ id: 'fact-1', factKey: 'pathly.users.active' });
+    const response = await decideSuggestion(
+      request('POST', { decision: 'confirm_fact' }),
+      { params: Promise.resolve({ id }) }
+    );
+    expect(response.status).toBe(201);
+    expect(mocks.requireOwner).toHaveBeenCalled();
+    expect(mocks.confirmFactSuggestion).toHaveBeenCalledWith('workspace-1', id, 'owner-1');
   });
 });
