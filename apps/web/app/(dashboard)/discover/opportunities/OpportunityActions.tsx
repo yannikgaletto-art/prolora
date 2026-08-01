@@ -9,6 +9,7 @@ import { Toast, type ToastMessage } from '@/app/components/Toast';
 import { fetchApi, errorMessage } from '@/app/lib/api';
 import type { OpportunityThreadRow } from '@/lib/db';
 import type { FeatureState } from '@/lib/system/doctor';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from '../../publish/writer/GenerationPreflight';
 
 interface DraftResult {
   draft_id: string;
@@ -45,6 +46,8 @@ export function OpportunityActions({ opportunityId, status, initialDraft, aiStat
   const [ruleWarnings, setRuleWarnings] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
 
   const canAct = status === 'new' || status === 'drafted';
 
@@ -57,7 +60,11 @@ export function OpportunityActions({ opportunityId, status, initialDraft, aiStat
     try {
       const result = await fetchApi<DraftResult>('/v1/discover/draft', {
         method: 'POST',
-        body: JSON.stringify({ opportunity_id: opportunityId }),
+        body: JSON.stringify({
+          opportunity_id: opportunityId,
+          output_language: outputLanguage,
+          product_mention_mode: mentionMode,
+        }),
       });
       setDraftText(result.content);
       setRuleWarnings(result.community_rules_check?.warnings ?? []);
@@ -100,6 +107,7 @@ export function OpportunityActions({ opportunityId, status, initialDraft, aiStat
 
   return (
     <>
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={drafting} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <div className="flex gap-2">
         <Button variant="secondary" size="sm" onClick={handleDraft} loading={drafting} disabled={aiState.state !== 'ready'} title={aiState.state === 'ready' ? undefined : aiState.hint}>
           {status === 'drafted' ? 'Re-draft Reply' : 'Draft Reply'}

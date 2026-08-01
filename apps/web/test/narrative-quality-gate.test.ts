@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { runQualityGate, type GateInput } from '@/lib/pipeline/quality-gate';
+import { parseSemanticNarrativeFindings } from '@/lib/pipeline/narrative-judge';
 
 const structure = {
   beweisbarer_ausgangspunkt: 'confirmed observation', bruch: 'but',
@@ -18,6 +19,21 @@ const base: GateInput = {
 };
 
 describe('Narrative Quality Gate', () => {
+  test('normalizes structured semantic findings without granting fact authority', () => {
+    expect(parseSemanticNarrativeFindings({ findings: [{
+      message: 'Current wording contradicts the historical fact.',
+      remedy: 'needs_input',
+      start: 4,
+      end: 12,
+      confirmed_fact: true,
+    }] })).toEqual([expect.objectContaining({
+      check: 'narrative_consistency',
+      status: 'failed',
+      remedy: 'needs_input',
+      span: { start: 4, end: 12 },
+    })]);
+  });
+
   test('blocks a language mismatch and unresolved placeholders', async () => {
     const language = await runQualityGate({ ...base, content: 'Ich habe beim Bauen etwas gelernt.' });
     expect(language.passed).toBe(false);

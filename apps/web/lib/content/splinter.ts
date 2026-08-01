@@ -29,6 +29,8 @@ import { assertCreditQuota } from '@/lib/usage/credits';
 import { TEMPLATE_CATALOG } from '@/lib/templates/catalog';
 import { PLATFORM_NOTES, STYLE_PRESET_RULES } from '@/lib/templates/render-prompt';
 import { getPlatformRules } from '@/lib/validation/platform-rules';
+import { assertGroundedDraft, renderGroundedContext, resolveManualGenerationContexts } from '@/lib/generation/manual';
+import type { OutputLanguage, ProductMentionMode } from '@/lib/generation/types';
 
 const MAX_PILLAR_CHARS = 24_000;
 const MAX_SPLINTERS = 6;
@@ -118,7 +120,13 @@ export function assignDayOffsets(suggestions: Array<{ core_idea_index: number }>
 
 export async function splinterPillar(
   workspaceId: string,
-  input: { title: string | null; body: string; activePlatforms: PlatformType[] }
+  input: {
+    title: string | null;
+    body: string;
+    activePlatforms: PlatformType[];
+    outputLanguage: OutputLanguage;
+    productMentionMode: ProductMentionMode;
+  }
 ): Promise<SplinterEngineResult> {
   const body = input.body.trim();
   if (body.length < 200) {
@@ -144,8 +152,14 @@ export async function splinterPillar(
     input.activePlatforms.length > 0 ? input.activePlatforms.includes(p) : true
   );
 
-  const language = context?.voice_language?.trim() || 'de';
+  const language = input.outputLanguage;
   const tone = context?.voice_tone?.trim() || 'casual';
+  const generationContexts = await resolveManualGenerationContexts(
+    workspaceId,
+    platforms,
+    { language: input.outputLanguage, mentionMode: input.productMentionMode },
+    { category: 'splinter' }
+  );
 
   const system = [
     'You split ONE long-form pillar text into several STRUCTURALLY DIFFERENT social posts',
@@ -178,6 +192,9 @@ export async function splinterPillar(
           ...grounding.map((g, i) => `<post_${i + 1}>${g}</post_${i + 1}>`),
         ].join('\n')
       : 'No past posts available — keep the voice plain and concrete, no marketing filler.',
+    '',
+    'Binding generation context:',
+    renderGroundedContext(generationContexts),
   ].join('\n');
 
   const templateBriefs = templates
@@ -261,6 +278,12 @@ export async function splinterPillar(
   }
 
   const parsed = parseSplinterOutput(toolBlock.input, templates, platforms);
+  await Promise.all(parsed.suggestions.map((suggestion) => {
+    const generationContext = generationContexts.find((entry) => entry.platform === suggestion.platform);
+    return generationContext
+      ? assertGroundedDraft(suggestion.content, generationContext, suggestion.platform)
+      : Promise.resolve([]);
+  }));
   const offsets = assignDayOffsets(parsed.suggestions);
   parsed.suggestions.forEach((s, i) => {
     s.suggested_day_offset = offsets[i];

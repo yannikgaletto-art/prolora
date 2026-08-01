@@ -5,6 +5,8 @@ import type {
   ResponseMapRow,
   VoiceConfigRow,
 } from '@/lib/db';
+import type { GenerationContext } from '@/lib/generation/types';
+import { renderGroundedContext } from '@/lib/generation/manual';
 
 // Non-negotiable defaults (Invariante D3) — merged with the user's list.
 const HARD_AVOID_PATTERNS = ['check out my tool', 'i built x', 'i built something', 'shameless plug'];
@@ -15,6 +17,7 @@ export interface DraftReplyInput {
   voice: VoiceConfigRow | null;
   responseMapEntries: ResponseMapRow[];
   productContext: string;
+  generationContext: GenerationContext;
 }
 
 export interface DraftReplyOutput {
@@ -45,7 +48,9 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyOutp
   const systemPrompt =
     'Du schreibst eine Antwort auf einen Community-Thread als echter Mensch, NICHT als Bot oder Marketer.\n\n' +
     'Nicht verhandelbare Regeln:\n' +
-    '- KEIN Produkt-Pitch. Das Produkt lebt im Profil oder in einem Follow-up.\n' +
+    (input.generationContext.mention.decision === 'omit'
+      ? '- KEIN Produkt-Pitch und keine Erwähnung von Pathly oder Prolora.\n'
+      : '- Pathly höchstens einmal als transparente, hilfreiche Einordnung erwähnen; kein Pitch.\n') +
     `- Verbotene Formulierungen: ${avoidPatterns.join(', ')}\n` +
     '- Beantworte die Frage ZUERST mit echtem Mehrwert aus eigener Erfahrung.\n' +
     `- Sprache: ${voice?.language ?? 'de'}\n` +
@@ -94,7 +99,8 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyOutp
             `Thread-Inhalt: ${(input.thread.thread_body ?? '').slice(0, 3000)}\n` +
             `Community: ${input.thread.community_name}\n` +
             `Vorgeschlagener Winkel: ${input.thread.suggested_angle ?? 'freie Wahl'}\n` +
-            `Produkt-Kontext (NUR intern für dein Verständnis, im Reply NICHT erwähnen): ${input.productContext.slice(0, 1000)}` +
+            `Produkt-Kontext: ${input.productContext.slice(0, 1000)}\n` +
+            `Verbindlicher Generierungskontext:\n${renderGroundedContext([input.generationContext])}` +
             fewShot +
             exampleReplies,
         },

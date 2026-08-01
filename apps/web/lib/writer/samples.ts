@@ -317,13 +317,13 @@ export async function rebuildContentDna(workspaceId: string): Promise<ContentDna
       kind: sample.kind,
       contentHash: sample.content_hash,
       maskedContentHash:
-        typeof sample.metadata.maskedContentHash === 'string'
+        typeof sample.metadata?.maskedContentHash === 'string'
           ? sample.metadata.maskedContentHash
           : sample.masked_content ? sha256Hex(sample.masked_content) : undefined,
       platform: sample.platform,
-      category: sample.category,
-      hookType: sample.hook_type,
-      contentFormat: sample.content_format,
+      category: sample.category ?? null,
+      hookType: sample.hook_type ?? null,
+      contentFormat: sample.content_format ?? null,
       active: sample.active,
     }))
   );

@@ -43,6 +43,10 @@ export interface WriterReview {
   sourceCount: number;
   warnings: string[];
   skippedChecks: string[];
+  gateFindings?: string[];
+  factBindings?: string[];
+  sampleBindings?: string[];
+  mentionDecisions?: string[];
   overrides: string[];
   changes: string[];
   claims: WriterClaim[];

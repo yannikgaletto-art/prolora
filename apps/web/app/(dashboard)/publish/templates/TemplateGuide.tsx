@@ -33,6 +33,7 @@ import { PLATFORM_META } from '../platform-meta';
 import { storeAppliedTemplate } from '../handoff';
 import { SlotField } from './SlotField';
 import { useSpeechInput } from './useSpeechInput';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from '../writer/GenerationPreflight';
 import type { FeatureState } from '@/lib/system/doctor';
 import {
   buildQuery,
@@ -113,6 +114,8 @@ export function TemplateGuide({
   const [aiKeys, setAiKeys] = useState<Set<string>>(new Set());
   const [prefillStatus, setPrefillStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [generating, setGenerating] = useState<'ai' | 'scaffold' | null>(null);
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
   const [draft, setDraft] = useState<TemplateDraftResult | null>(null);
   const [slotError, setSlotError] = useState<{ key: string; message: string } | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -501,6 +504,8 @@ export function TemplateGuide({
           slots,
           target_platforms: targetPlatformsFor(template, activePlatforms),
           mode,
+          output_language: outputLanguage,
+          product_mention_mode: mentionMode,
         }),
       });
       if (mode === 'scaffold') {
@@ -556,6 +561,9 @@ export function TemplateGuide({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+      {state.step === 4 && !showPreview && (
+        <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={Boolean(generating)} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
+      )}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {(state.step > 1 || showPreview) && (

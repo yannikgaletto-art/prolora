@@ -288,7 +288,7 @@ export async function executeWriterRun(
   now: Date = new Date()
 ): Promise<WriterRunResult> {
   const policy = await dependencies.loadPolicy(input.workspaceId);
-  const language = input.language ?? policy.outputLanguages[0] ?? 'de';
+  const language = input.language ?? policy.outputLanguages?.[0] ?? 'de';
   const generationGroupId = input.generationGroupId ?? randomUUID();
   if (!policy.enabled && input.mode !== 'shadow') {
     throw new ApiError(409, 'Writer is paused for this workspace.', 'writer_paused');
@@ -370,7 +370,7 @@ export async function executeWriterRun(
             platform,
             category: mixBucket,
             asOf: now.toISOString(),
-            mentionMode: input.mentionMode ?? policy.productMentionMode,
+            mentionMode: input.mentionMode ?? policy.productMentionMode ?? 'adaptive',
             productRelevant:
               signal.evidence.proofAssetIds.length > 0 || /\bpathly\b/iu.test(signal.title),
             communityRulesKnown: !['reddit', 'discord'].includes(platform),

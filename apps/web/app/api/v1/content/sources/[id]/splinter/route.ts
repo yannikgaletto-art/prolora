@@ -3,6 +3,12 @@ import { getWorkspaceId } from '@/lib/api/auth-middleware';
 import { handleRouteError, jsonError } from '@/lib/api/http';
 import { getServiceDb, type ConnectionRow, type ContentSourceRow } from '@/lib/db';
 import { splinterPillar } from '@/lib/content/splinter';
+import { z } from 'zod';
+
+const generationSchema = z.object({
+  output_language: z.enum(['de', 'en']),
+  product_mention_mode: z.enum(['adaptive', 'include', 'exclude']),
+}).strict();
 
 // POST /api/v1/content/sources/:id/splinter — run the splinter engine on a
 // saved pillar and persist the suggestions on the source (GOAL-RUN6 §12).
@@ -14,6 +20,7 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     const workspaceId = await getWorkspaceId(req);
+    const generation = generationSchema.parse(await req.json());
     const { id } = await params;
     const db = getServiceDb();
 
@@ -46,6 +53,8 @@ export async function POST(
       title: source.title,
       body: source.body_md,
       activePlatforms,
+      outputLanguage: generation.output_language,
+      productMentionMode: generation.product_mention_mode,
     });
 
     const { error: updateError } = await db

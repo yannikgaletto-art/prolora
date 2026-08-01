@@ -9,6 +9,8 @@ import { getWorkspaceContext } from '@/lib/discovery/auto-context';
 import { assertCreditQuota } from '@/lib/usage/credits';
 import { getTemplateById } from '@/lib/templates/catalog';
 import { buildTemplatePrompt } from '@/lib/templates/render-prompt';
+import { assertGroundedDraft, renderGroundedContext, resolveManualGenerationContexts } from '@/lib/generation/manual';
+import type { OutputLanguage, ProductMentionMode } from '@/lib/generation/types';
 
 const MAX_RETRIES = 1;
 
@@ -16,6 +18,8 @@ export interface GenerateTemplateDraftInput {
   templateId: string;
   slots: Record<string, string>;
   targetPlatforms: PlatformType[];
+  outputLanguage: OutputLanguage;
+  productMentionMode: ProductMentionMode;
 }
 
 export async function generateTemplateDraft(
@@ -30,6 +34,12 @@ export async function generateTemplateDraft(
   await assertCreditQuota(workspaceId, CREDIT_COSTS.template_draft);
 
   const context = await getWorkspaceContext(workspaceId);
+  const generationContexts = await resolveManualGenerationContexts(
+    workspaceId,
+    input.targetPlatforms,
+    { language: input.outputLanguage, mentionMode: input.productMentionMode },
+    { category: 'template' }
+  );
 
   // Prefill empty slots from the workspace context, then enforce the
   // template's per-slot required flags (Zod cannot know them).
@@ -83,7 +93,10 @@ export async function generateTemplateDraft(
           )
         ),
         system: prompt.system,
-        messages: [{ role: 'user', content: `${prompt.user}${strictNote}` }],
+        messages: [{
+          role: 'user',
+          content: `${prompt.user}\n\nBinding generation context:\n${renderGroundedContext(generationContexts)}${strictNote}`,
+        }],
         tools: [
           {
             name: 'template_draft',
@@ -176,6 +189,7 @@ export async function generateTemplateDraft(
     draft.content = truncateAtParagraph(draft.content, prompt.characterBudget, prompt.budgetPlatform);
     truncated = true;
   }
+  await assertGroundedDraft(draft.content, generationContexts[0], prompt.budgetPlatform);
 
   // Charge only after success. Log failure must never eat the draft —
   // usage_logs is telemetry/billing, the user experience wins (GOAL-RUN4).

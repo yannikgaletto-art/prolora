@@ -23,7 +23,19 @@ const COLUMNS = {
   post_groups:
     'id, original_content, media, scheduled_at, adapt_content, first_comment, created_via, created_at',
   post_items:
-    'id, post_group_id, connection_id, platform, adapted_content, status, platform_post_id, platform_url, published_at, error_message, metrics, metrics_updated_at, created_at',
+    'id, post_group_id, connection_id, platform, adapted_content, resolved_content, status, platform_post_id, platform_url, published_at, error_message, metrics, metrics_updated_at, qa_context, created_at',
+  content_samples:
+    'id, kind, origin, platform, content, category, hook_type, content_format, masked_content, metadata, source_post_item_id, source_url, label, active, content_hash, created_at, updated_at',
+  content_dna_profiles:
+    'id, version, status, sample_set_hash, schema_version, profile, confidence, prompt_rules, locked_rules, sample_count, model, prompt_version, created_at',
+  proof_assets:
+    'id, type, content, source_url, verified_at, consent_status, consent_recorded_at, consent_reference, source_feedback_item_id, source_author, origin, fact_key, fact_kind, fact_value, fact_unit, effective_from, effective_to, fact_status, direction_policy, fact_change_reason, confirmed_by, created_at',
+  proof_suggestions:
+    'id, feedback_item_id, suggested_type, content, source_url, source_author, source_platform, rationale, confidence, requires_consent, status, decided_at, decided_by, proof_asset_id, suggestion_origin, fact_payload, source_content_item_variant_id, created_at',
+  content_items:
+    'id, state, signal_ref, signal_kind, title, strength, evidence, mix_bucket, angle, concept, gate_result, rejected_reason, stale_after, state_entered_at, stalled_at, post_group_id, scheduled_at, language, generation_group_id, created_at, updated_at',
+  workspace_writer_policies:
+    'workspace_id, enabled, mode, allowed_connection_ids, daily_post_cap, weekly_credit_cap, minimum_signal_strength, content_mix, quiet_days, timezone, dna_profile_id, policy_version, updated_by, output_languages, product_mention_mode, created_at, updated_at',
   // feedback_items: all analytical fields, EXCLUDING embedding + internal_notes.
   feedback_items:
     'id, source_platform, source_url, source_author, source_author_avatar, source_date, original_content, original_language, rating, sentiment, sentiment_score, category, summary_de, summary_en, topics, urgency, actionable, suggested_action, is_duplicate, duplicate_of, status, created_at',
@@ -101,6 +113,12 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     usageLogs,
     impactPredictions,
     feedbackSources,
+    contentSamples,
+    contentDnaProfiles,
+    proofAssets,
+    proofSuggestions,
+    contentItems,
+    writerPolicies,
   ] = await Promise.all([
     fetchTable('platform_connections', workspaceScoped('platform_connections', COLUMNS.platform_connections), offset),
     fetchTable('post_groups', workspaceScoped('post_groups', COLUMNS.post_groups), offset),
@@ -144,6 +162,22 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     fetchTable('usage_logs', workspaceScoped('usage_logs', COLUMNS.usage_logs), offset),
     fetchTable('impact_predictions', workspaceScoped('impact_predictions', COLUMNS.impact_predictions), offset),
     fetchTable('feedback_sources', workspaceScoped('feedback_sources', COLUMNS.feedback_sources), offset),
+    fetchTable('content_samples', workspaceScoped('content_samples', COLUMNS.content_samples), offset),
+    fetchTable('content_dna_profiles', workspaceScoped('content_dna_profiles', COLUMNS.content_dna_profiles), offset),
+    fetchTable('proof_assets', workspaceScoped('proof_assets', COLUMNS.proof_assets), offset),
+    fetchTable('proof_suggestions', workspaceScoped('proof_suggestions', COLUMNS.proof_suggestions), offset),
+    fetchTable('content_items', workspaceScoped('content_items', COLUMNS.content_items), offset),
+    fetchTable(
+      'workspace_writer_policies',
+      db
+        .from('workspace_writer_policies')
+        .select(COLUMNS.workspace_writer_policies, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: true })
+        .range(offset, rangeEnd)
+        .returns<Row[]>(),
+      offset
+    ),
   ]);
 
   // feedback_sources.config may hold connection settings — strip any key
@@ -169,6 +203,12 @@ export async function buildGdprExport(workspaceId: string, page: number): Promis
     usage_logs: usageLogs,
     impact_predictions: impactPredictions,
     feedback_sources: feedbackSources,
+    content_samples: contentSamples,
+    content_dna_profiles: contentDnaProfiles,
+    proof_assets: proofAssets,
+    proof_suggestions: proofSuggestions,
+    content_items: contentItems,
+    workspace_writer_policies: writerPolicies,
   };
 
   const payload = {

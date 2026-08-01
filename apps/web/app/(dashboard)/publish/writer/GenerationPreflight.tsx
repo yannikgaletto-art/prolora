@@ -9,12 +9,14 @@ export function GenerationPreflight({
   disabled,
   onLanguageChange,
   onMentionChange,
+  allowBoth = true,
 }: {
   language: PreflightLanguage;
   mention: PreflightMention;
   disabled?: boolean;
   onLanguageChange: (value: PreflightLanguage) => void;
   onMentionChange: (value: PreflightMention) => void;
+  allowBoth?: boolean;
 }) {
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4" aria-label="Generation preflight">
@@ -23,7 +25,7 @@ export function GenerationPreflight({
         <fieldset>
           <legend className="text-xs font-semibold uppercase tracking-wide text-gray-500">Sprache</legend>
           <div className="mt-2 flex flex-wrap gap-2">
-            {([['de', 'Deutsch'], ['en', 'English'], ['both', 'Beide']] as const).map(([value, label]) => (
+            {([['de', 'Deutsch'], ['en', 'English'], ...(allowBoth ? [['both', 'Beide'] as const] : [])] as const).map(([value, label]) => (
               <Choice key={value} name="writer-language" checked={language === value} disabled={disabled} onChange={() => onLanguageChange(value)} label={label} />
             ))}
           </div>

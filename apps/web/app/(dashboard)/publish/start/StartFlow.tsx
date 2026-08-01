@@ -23,6 +23,7 @@ import { fetchApi, errorMessage } from '@/app/lib/api';
 import { storeAppliedTemplate } from '../handoff';
 import { useSpeechInput } from '../templates/useSpeechInput';
 import { getProductCopy } from '@/lib/i18n/product';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from '../writer/GenerationPreflight';
 
 const GOALS: ContentGoal[] = [
   'authority',
@@ -100,6 +101,8 @@ export function StartFlow({ locale, workspaceName, productDescription }: Props) 
   const [concepts, setConcepts] = useState<PostConcept[] | null>(null);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [followUpAnswers, setFollowUpAnswers] = useState<string[]>([]);
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>(locale === 'de' ? 'de' : 'en');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
   const draftsRef = useRef<HTMLDivElement | null>(null);
 
   const loadAngles = useCallback(
@@ -144,6 +147,8 @@ export function StartFlow({ locale, workspaceName, productDescription }: Props) 
             ? followUpAnswers.map((answer) => answer.trim()).filter(Boolean)
             : undefined,
           settings,
+          output_language: outputLanguage,
+          product_mention_mode: mentionMode,
         }),
       });
       setConcepts(result.concepts);
@@ -172,6 +177,7 @@ export function StartFlow({ locale, workspaceName, productDescription }: Props) 
 
   return (
     <div className="flex flex-col gap-4">
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={generating} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <Card title={workspaceName} description={productDescription ?? copy.start_no_profile}>
         <div className="flex flex-wrap items-center gap-3">
           <Link

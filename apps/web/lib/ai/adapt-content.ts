@@ -1,6 +1,8 @@
 import { getAnthropicClient, AI_MODEL } from '@/lib/ai/client';
 import { getServiceDb } from '@/lib/db';
 import { CREDIT_COSTS, type PlatformType } from '@prolora/shared';
+import type { GenerationContext } from '@/lib/generation/types';
+import { assertGroundedDraft, renderGroundedContext } from '@/lib/generation/manual';
 
 const MAX_RETRIES = 2;
 
@@ -50,7 +52,8 @@ export function adaptationLanguageInstruction(language: string | null | undefine
 export async function adaptContentForPlatforms(
   workspaceId: string,
   content: string,
-  targets: PlatformTarget[]
+  targets: PlatformTarget[],
+  generationContexts: GenerationContext[] = []
 ): Promise<AdaptedContent[]> {
   const usage: AdaptationUsage = { inputTokens: 0, outputTokens: 0 };
   const db = getServiceDb();
@@ -62,7 +65,13 @@ export async function adaptContentForPlatforms(
   const languageInstruction = adaptationLanguageInstruction(voice?.language);
 
   const settled = await Promise.allSettled(
-    targets.map((target) => adaptForPlatform(content, target, usage, languageInstruction))
+    targets.map((target) => adaptForPlatform(
+      content,
+      target,
+      usage,
+      languageInstruction,
+      generationContexts.find((context) => context.platform === target.platform)
+    ))
   );
 
   const results: AdaptedContent[] = settled.map((outcome, index) => {
@@ -91,7 +100,8 @@ async function adaptForPlatform(
   content: string,
   target: PlatformTarget,
   usage: AdaptationUsage,
-  languageInstruction: string
+  languageInstruction: string,
+  generationContext?: GenerationContext
 ): Promise<AdaptedContent> {
   const client = getAnthropicClient();
   let strictNote = '';
@@ -111,7 +121,8 @@ async function adaptForPlatform(
             `Platform: ${target.platform}\n` +
             `Style: ${PLATFORM_STYLE[target.platform]}\n` +
             `Hard limit: ${target.characterLimit} characters.${strictNote}\n\n` +
-            `Source text:\n${content}`,
+            `Source text:\n${content}` +
+            (generationContext ? `\n\nBinding generation context:\n${renderGroundedContext([generationContext])}` : ''),
         },
       ],
       tools: [
@@ -153,6 +164,7 @@ async function adaptForPlatform(
 
     const length = measureLength(adaptedText, target.platform);
     if (length <= target.characterLimit) {
+      if (generationContext) await assertGroundedDraft(adaptedText, generationContext, target.platform);
       return { platform: target.platform, content: adaptedText, adapted: true };
     }
 

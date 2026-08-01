@@ -39,6 +39,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       templateId: input.template_id,
       slots: input.slots,
       targetPlatforms: input.target_platforms,
+      outputLanguage: input.output_language,
+      productMentionMode: input.product_mention_mode,
     });
 
     const response: TemplateDraftResponse = {

@@ -55,8 +55,17 @@ export const createPostSchema = z.object({
   draft: z.boolean().optional(),
   first_comment: z.string().max(2000).optional(),
   adapt_content: z.boolean().optional(),
+  output_language: z.enum(['de', 'en']).optional(),
+  product_mention_mode: z.enum(['adaptive', 'include', 'exclude']).optional(),
   evergreen: z.boolean().optional(),
   workspace_id: z.string().uuid().optional(),
+}).superRefine((value, context) => {
+  if (value.adapt_content && !value.output_language) {
+    context.addIssue({ code: 'custom', path: ['output_language'], message: 'Output language is required for AI adaptation.' });
+  }
+  if (value.adapt_content && !value.product_mention_mode) {
+    context.addIssue({ code: 'custom', path: ['product_mention_mode'], message: 'Product mention mode is required for AI adaptation.' });
+  }
 });
 
 export const feedbackQuerySchema = z.object({
@@ -88,6 +97,8 @@ export const communityDiscoverySchema = z.object({
 
 export const draftRequestSchema = z.object({
   opportunity_id: z.string().uuid(),
+  output_language: z.enum(['de', 'en']),
+  product_mention_mode: z.enum(['adaptive', 'include', 'exclude']),
   voice_config: z.object({
     tone: z.enum(['casual', 'professional', 'technical', 'empathetic']).optional(),
     language: z.string().optional(),
@@ -131,6 +142,8 @@ export const templateDraftSchema = z.object({
     .min(1)
     .max(5),
   mode: z.enum(['scaffold', 'ai']).default('ai'),
+  output_language: z.enum(['de', 'en']),
+  product_mention_mode: z.enum(['adaptive', 'include', 'exclude']),
   workspace_id: z.string().uuid().optional(),
 });
 
@@ -182,6 +195,8 @@ export const conceptRequestSchema = z.object({
   /** Answers to follow-up questions from a previous thin-material round. */
   follow_up_answers: z.array(z.string().max(2000)).max(3).optional(),
   settings: conceptSettingsSchema,
+  output_language: z.enum(['de', 'en']),
+  product_mention_mode: z.enum(['adaptive', 'include', 'exclude']),
   target_platforms: z
     .array(z.enum(['linkedin', 'x', 'bluesky', 'mastodon', 'telegram']))
     .min(1)

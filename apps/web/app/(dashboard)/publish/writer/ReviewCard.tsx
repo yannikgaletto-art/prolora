@@ -313,6 +313,10 @@ export function ReviewCard({
             <ReviewSignals label={copy.review.warnings} values={review.warnings} />
             <ReviewSignals label={copy.review.skipped} values={review.skippedChecks} />
             <ReviewSignals label={copy.review.overrides} values={review.overrides} />
+            <ReviewSignals label="Gate findings" values={review.gateFindings ?? []} />
+            <ReviewSignals label="Fact bindings" values={review.factBindings ?? []} />
+            <ReviewSignals label="Golden Sample bindings" values={review.sampleBindings ?? []} />
+            <ReviewSignals label="Product mention decision" values={review.mentionDecisions ?? []} />
           </ContextBlock>
 
           {review.changes.length > 0 && (

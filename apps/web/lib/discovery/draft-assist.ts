@@ -11,6 +11,8 @@ import { draftReply } from '@/lib/ai/draft-reply';
 import { getWorkspaceContext } from './auto-context';
 import { checkCooldown } from './cooldown-tracker';
 import { ApiError } from '@/lib/api/http';
+import { assertGroundedDraft, resolveManualGenerationContexts } from '@/lib/generation/manual';
+import type { OutputLanguage, ProductMentionMode } from '@/lib/generation/types';
 
 // POST /discover/draft: loads all context (thread, community rules, voice,
 // Response Map few-shots), generates a compliant draft and stores it on the
@@ -18,7 +20,10 @@ import { ApiError } from '@/lib/api/http';
 export async function generateDraft(
   workspaceId: string,
   opportunityId: string,
-  voiceOverride?: Partial<VoiceConfig>
+  voiceOverride?: Partial<VoiceConfig>,
+  generationPolicy: { language: OutputLanguage; mentionMode: ProductMentionMode } = {
+    language: 'de', mentionMode: 'adaptive',
+  }
 ): Promise<DraftResponse> {
   const db = getServiceDb();
 
@@ -43,6 +48,16 @@ export async function generateDraft(
 
   // Response Map: proven answers with the same intent as few-shot examples.
   const responseMapEntries = await loadResponseMapEntries(workspaceId, thread.intent_type);
+  const [generationContext] = await resolveManualGenerationContexts(
+    workspaceId,
+    [thread.platform],
+    generationPolicy,
+    {
+      category: 'community',
+      productRelevant: true,
+      communityRulesKnown: Boolean(community?.rules_summary?.trim()),
+    }
+  );
 
   const result = await draftReply({
     thread,
@@ -50,7 +65,9 @@ export async function generateDraft(
     voice,
     responseMapEntries,
     productContext: context?.product_description ?? '',
+    generationContext,
   });
+  await assertGroundedDraft(result.content, generationContext, thread.platform);
 
   // Persist the draft on the opportunity (status new -> drafted).
   const { error: updateError } = await db

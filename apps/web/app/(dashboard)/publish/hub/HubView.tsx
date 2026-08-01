@@ -15,6 +15,7 @@ import { fetchApi, errorMessage } from '@/app/lib/api';
 import { storeAppliedTemplate } from '../handoff';
 import { useSpeechInput } from '../templates/useSpeechInput';
 import type { FeatureState } from '@/lib/system/doctor';
+import { GenerationPreflight, type PreflightLanguage, type PreflightMention } from '../writer/GenerationPreflight';
 
 export interface HubConnection {
   id: string;
@@ -84,6 +85,8 @@ export function HubView({ connections, aiState }: { connections: HubConnection[]
   const [scoringDraft, setScoringDraft] = useState<number | null>(null);
   const [checksByDraft, setChecksByDraft] = useState<Record<number, { formatting_score: number; platform_hygiene_score: number }>>({});
   const [impactByDraft, setImpactByDraft] = useState<Record<number, number>>({});
+  const [outputLanguage, setOutputLanguage] = useState<PreflightLanguage>('de');
+  const [mentionMode, setMentionMode] = useState<PreflightMention>('adaptive');
 
   function connectionsFor(platform: PlatformType): HubConnection[] {
     return connections.filter((c) => c.platform === platform);
@@ -142,6 +145,7 @@ export function HubView({ connections, aiState }: { connections: HubConnection[]
       if (!source) return;
       const res = await fetchApi<SplinterResponse>(`/v1/content/sources/${source.id}/splinter`, {
         method: 'POST',
+        body: JSON.stringify({ output_language: outputLanguage, product_mention_mode: mentionMode }),
       });
       setResult(res);
       setToast({
@@ -222,6 +226,7 @@ export function HubView({ connections, aiState }: { connections: HubConnection[]
 
   return (
     <div className="space-y-6">
+      <GenerationPreflight language={outputLanguage} mention={mentionMode} allowBoth={false} disabled={splintering} onLanguageChange={setOutputLanguage} onMentionChange={setMentionMode} />
       <Card>
         <h2 className="text-sm font-semibold text-gray-900">Pillar-Content</h2>
         <p className="mt-1 text-xs text-gray-500">

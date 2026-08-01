@@ -178,7 +178,30 @@ function parseReview(row: ReviewRow): WriterReview {
   );
   const claims = [...explicitClaims, ...proofClaims, ...feedbackClaims, ...referenceClaims];
   const warnings = stringList(snapshot.warnings);
-  const skippedChecks = stringList(snapshot.skipped_checks ?? snapshot.skippedChecks);
+  const variantFindings = records(snapshot.variants).flatMap((variant) =>
+    records(record(variant.gateResult ?? variant.gate_result).findings)
+  );
+  const gateFindings = variantFindings.map((finding) =>
+    `${text(finding.status, 'unknown')}: ${text(finding.message, text(finding.check))}`
+  );
+  warnings.push(...variantFindings
+    .filter((finding) => finding.status === 'failed')
+    .map((finding) => text(finding.message, text(finding.check)))
+    .filter(Boolean));
+  const skippedChecks = [
+    ...stringList(snapshot.skipped_checks ?? snapshot.skippedChecks),
+    ...variantFindings
+      .filter((finding) => finding.status === 'skipped')
+      .map((finding) => text(finding.message, text(finding.check)))
+      .filter(Boolean),
+  ];
+  const generationContexts = records(record(snapshot.generation).contexts);
+  const factBindings = [...new Set(generationContexts.flatMap((entry) => stringList(entry.factIds ?? entry.fact_ids)))];
+  const sampleBindings = [...new Set(generationContexts.flatMap((entry) => stringList(entry.sampleIds ?? entry.sample_ids)))];
+  const mentionDecisions = generationContexts.map((entry) => {
+    const mention = record(entry.mention);
+    return `${text(entry.platform, 'channel')}: ${text(mention.decision, 'unknown')} — ${text(mention.reason, 'no reason')}`;
+  });
   const overrides = stringList(snapshot.overrides);
   const channels = parseChannels(snapshot);
   const timezone = text(
@@ -216,6 +239,10 @@ function parseReview(row: ReviewRow): WriterReview {
     sourceCount: numberValue(snapshot.source_count, claims.length),
     warnings,
     skippedChecks,
+    gateFindings,
+    factBindings,
+    sampleBindings,
+    mentionDecisions,
     overrides,
     changes: stringList(snapshot.changes),
     claims,

@@ -16,7 +16,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const input = draftRequestSchema.parse(body);
-    const draft = await generateDraft(workspaceId, input.opportunity_id, input.voice_config);
+    const draft = await generateDraft(workspaceId, input.opportunity_id, input.voice_config, {
+      language: input.output_language,
+      mentionMode: input.product_mention_mode,
+    });
 
     return NextResponse.json(draft);
   } catch (error) {

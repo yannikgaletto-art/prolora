@@ -222,6 +222,8 @@ export function PostComposer({
       connection_overrides:
         Object.keys(connectionOverrides).length > 0 ? connectionOverrides : undefined,
       adapt_content: adaptContent || undefined,
+      output_language: adaptContent ? (locale === 'de' ? 'de' : 'en') : undefined,
+      product_mention_mode: adaptContent ? 'adaptive' : undefined,
       scheduled_at: scheduledAtIso,
       scheduled_tz: scheduledAtIso
         ? scheduledTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone

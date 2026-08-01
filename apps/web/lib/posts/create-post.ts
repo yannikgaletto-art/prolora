@@ -15,10 +15,31 @@ import { ApiError } from '@/lib/api/http';
 import { resolveConnectionPayload } from './resolve-payload';
 import { hashScoredContent } from '@/lib/scoring/content-hash';
 import { linkLatestPrediction } from '@/lib/scoring/prediction-store';
+import { resolveManualGenerationContexts } from '@/lib/generation/manual';
+import type { GenerationContext } from '@/lib/generation/types';
+import { NARRATIVE_GATE_VERSION } from '@/lib/pipeline/qa-snapshot';
+import { sha256Hex } from '@/lib/writer/hash';
 
 export interface CreatePostResult {
   response: CreatePostResponse;
   warnings: string[];
+}
+
+function aiQaContext(content: string, context: GenerationContext | undefined): Record<string, unknown> | null {
+  if (!context) return null;
+  return {
+    origin: 'ai',
+    contentHash: sha256Hex(content),
+    gateStatus: 'passed',
+    gateVersion: NARRATIVE_GATE_VERSION,
+    language: context.language,
+    generation: {
+      platform: context.platform,
+      category: context.category ?? 'compose',
+      factsHash: context.factsHash,
+      sampleHash: context.sampleHash,
+    },
+  };
 }
 
 // The main publishing entry (FABLE-02 Abschnitt 2):
@@ -71,16 +92,28 @@ export async function createPost(
 
   // Content adaptation (optional) — parallel, falls back to original.
   const contentByConnection = new Map<string, string>();
+  const qaPassedConnections = new Set<string>();
+  let adaptationContexts: GenerationContext[] = [];
   if (request.adapt_content) {
     const targets: PlatformTarget[] = connections.map((c) => ({
       platform: c.platform,
       characterLimit: characterLimitFor(c),
     }));
-    const adapted = await adaptContentForPlatforms(workspaceId, request.content, targets);
+    if (!request.output_language || !request.product_mention_mode) {
+      throw new ApiError(400, 'Language and product mention mode are required for AI adaptation.', 'generation_preflight_required');
+    }
+    adaptationContexts = await resolveManualGenerationContexts(
+      workspaceId,
+      targets.map((target) => target.platform),
+      { language: request.output_language, mentionMode: request.product_mention_mode },
+      { category: 'compose' }
+    );
+    const adapted = await adaptContentForPlatforms(workspaceId, request.content, targets, adaptationContexts);
     for (const c of connections) {
       const match = adapted.find((a) => a.platform === c.platform);
       if (match) {
         contentByConnection.set(c.id, match.content);
+        if (match.adapted) qaPassedConnections.add(c.id);
         if (match.warning) warnings.push(match.warning);
       }
     }
@@ -163,6 +196,16 @@ export async function createPost(
     resolved_content: finalContent(c),
     media: mediaByConnection.get(c.id) ?? mediaRefs,
     status: isDraft ? 'draft' : isScheduled ? 'scheduled' : 'queued',
+    qa_context:
+      request.adapt_content &&
+      qaPassedConnections.has(c.id) &&
+      !request.platform_overrides?.[c.platform]?.content &&
+      !request.connection_overrides?.[c.id]?.content
+        ? aiQaContext(
+            finalContent(c),
+            adaptationContexts.find((context) => context.platform === c.platform)
+          )
+        : null,
   }));
   const { error: itemsError } = await db.from('post_items').insert(itemsPayload);
   if (itemsError) {

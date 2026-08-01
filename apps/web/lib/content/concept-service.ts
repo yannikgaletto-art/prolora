@@ -21,7 +21,8 @@ import { listProofAssets, normalizeProfileFields } from '@/lib/product/profile';
 import { listContentReferences } from '@/lib/content/references';
 import { matchReferences } from '@/lib/content/reference-matcher';
 import { LONGFORM_MIN_BUDGET, PLATFORM_NOTES } from '@/lib/templates/render-prompt';
-import type { GenerationContext } from '@/lib/generation/types';
+import type { GenerationContext, ProductMentionMode } from '@/lib/generation/types';
+import { assertGroundedDraft, resolveManualGenerationContexts } from '@/lib/generation/manual';
 
 const MAX_RETRIES = 1;
 const REQUIRED_LENSES: ConceptLens[] = ['evidence', 'founder', 'community'];
@@ -35,6 +36,7 @@ export interface GenerateConceptsInput {
   target_platforms: PlatformType[];
   /** Explicit generation language; dashboard locale is never an implicit substitute. */
   output_language?: 'de' | 'en';
+  product_mention_mode?: ProductMentionMode;
   generation_contexts?: GenerationContext[];
 }
 
@@ -183,6 +185,18 @@ export async function generateConcepts(
   input: GenerateConceptsInput
 ): Promise<ConceptResponse> {
   await assertCreditQuota(workspaceId, CREDIT_COSTS.post_concepts);
+
+  const generationContexts = input.generation_contexts ?? (
+    input.output_language && input.product_mention_mode
+      ? await resolveManualGenerationContexts(
+          workspaceId,
+          input.target_platforms,
+          { language: input.output_language, mentionMode: input.product_mention_mode },
+          { category: input.content_goal }
+        )
+      : []
+  );
+  input = { ...input, generation_contexts: generationContexts };
 
   const [context, proofAssets, references] = await Promise.all([
     getWorkspaceContext(workspaceId),
@@ -359,6 +373,12 @@ export async function generateConcepts(
   concepts.sort(
     (a, b) => REQUIRED_LENSES.indexOf(a.lens) - REQUIRED_LENSES.indexOf(b.lens)
   );
+
+  if (generationContexts[0]) {
+    await Promise.all(concepts.map((concept) =>
+      assertGroundedDraft(concept.canonical_content, generationContexts[0], input.target_platforms[0])
+    ));
+  }
 
   const db = getServiceDb();
   const { error: usageError } = await db.from('usage_logs').insert({

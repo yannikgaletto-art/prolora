@@ -49,6 +49,8 @@ export interface CreatePostRequest {
   draft?: boolean;
   first_comment?: string;
   adapt_content?: boolean;
+  output_language?: 'de' | 'en';
+  product_mention_mode?: 'adaptive' | 'include' | 'exclude';
   evergreen?: boolean;
   workspace_id?: string;
 }
