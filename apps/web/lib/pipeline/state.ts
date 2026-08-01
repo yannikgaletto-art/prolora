@@ -63,6 +63,8 @@ export interface ContentItemRow {
   state: ContentItemState;
   signal_ref: string | null;
   signal_kind: SignalKindValue;
+  language?: 'de' | 'en' | null;
+  generation_group_id?: string | null;
   title: string;
   strength: number;
   evidence: ContentItemEvidence;
@@ -117,7 +119,7 @@ export interface ContentItemTransitionRow {
 // `embedding` ist bewusst NICHT in der Allowlist — pgvector-Spalten gehören
 // nie in eine Antwort (CLAUDE.md: kein select('*') auf Tabellen mit Embeddings).
 export const CONTENT_ITEM_COLUMNS =
-  'id, workspace_id, state, signal_ref, signal_kind, title, strength, evidence, ' +
+  'id, workspace_id, state, signal_ref, signal_kind, language, generation_group_id, title, strength, evidence, ' +
   'mix_bucket, angle, concept, gate_result, rejected_reason, stale_after, ' +
   'state_entered_at, stalled_at, post_group_id, scheduled_at, created_at, updated_at';
 

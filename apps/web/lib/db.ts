@@ -140,6 +140,8 @@ export interface PostItemRow {
   publish_claim_lease_until?: string | null;
   /** Migration 020; durable cap for fresh automatic publish attempts. */
   publish_retry_count?: number;
+  /** Migration 023; immutable generation and gate snapshot for AI-origin posts. */
+  qa_context?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -292,6 +294,17 @@ export interface ProofAssetRow {
   content: string;
   source_url: string | null;
   verified_at: string | null;
+  fact_key?: string | null;
+  fact_kind?: 'current_state' | 'historical_state' | 'event' | 'metric' | 'financial' | 'policy' | null;
+  fact_value?: unknown;
+  fact_unit?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  fact_status?: 'confirmed' | 'superseded' | 'revoked' | null;
+  direction_policy?: 'free' | 'warn_on_decrease' | 'warn_on_increase' | null;
+  fact_change_reason?: string | null;
+  supersedes_proof_asset_id?: string | null;
+  confirmed_by?: string | null;
   created_at: string;
 }
 
