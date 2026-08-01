@@ -5,6 +5,10 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getActiveWorkspace } from '@/lib/workspace/active';
 import { PATHNAME_HEADER } from '@/lib/http-headers';
 import { AppShell } from '@/app/components/AppShell';
+import { loadGuideState } from '@/lib/guide/load';
+import { resolveGuide } from '@/lib/guide/steps';
+import { getLocale } from '@/lib/i18n/server';
+import { getGuideCopy } from '@/lib/i18n/guide';
 
 // Server Component (F0-4, Pfad A): reads its data through the service layer,
 // never through fetch() against our own API routes.
@@ -28,8 +32,19 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     return <div className="min-h-screen bg-gray-50">{children}</div>;
   }
 
+  // Der geführte Faden. `loadGuideState` fängt seine Fehler selbst ab; der
+  // try/catch hier ist der letzte Schutz, damit ein Problem im Faden nie das
+  // ganze Dashboard verhindert — dann rendert die Shell eben ohne Leiste.
+  let guide = null;
+  try {
+    const [state, locale] = await Promise.all([loadGuideState(workspace.id), getLocale()]);
+    guide = { guide: resolveGuide(state), copy: getGuideCopy(locale) };
+  } catch (error) {
+    console.error('[dashboard] guide bar unavailable:', error);
+  }
+
   return (
-    <AppShell workspaceName={workspace.name} userEmail={user.email ?? ''}>
+    <AppShell workspaceName={workspace.name} userEmail={user.email ?? ''} guide={guide}>
       {children}
     </AppShell>
   );

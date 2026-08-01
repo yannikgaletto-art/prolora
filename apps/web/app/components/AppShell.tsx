@@ -16,6 +16,7 @@ import {
   SettingsIcon,
 } from './NavIcons';
 import { UserMenu } from './UserMenu';
+import { GuideBar, type GuideBarProps } from './GuideBar';
 
 interface NavItem {
   href: string;
@@ -76,10 +77,12 @@ function NavLink({
 export interface AppShellProps {
   workspaceName: string;
   userEmail: string;
+  /** Der geführte Faden. Null, wenn er sich nicht laden ließ — dann keine Leiste. */
+  guide: GuideBarProps | null;
   children: ReactNode;
 }
 
-export function AppShell({ workspaceName, userEmail, children }: AppShellProps) {
+export function AppShell({ workspaceName, userEmail, guide, children }: AppShellProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [moreExpanded, setMoreExpanded] = useState(false);
@@ -216,6 +219,8 @@ export function AppShell({ workspaceName, userEmail, children }: AppShellProps) 
           </div>
           <UserMenu email={userEmail} />
         </header>
+
+        {guide && <GuideBar guide={guide.guide} copy={guide.copy} />}
 
         <main className="mx-auto max-w-6xl px-4 py-6 lg:px-8 lg:py-8">{children}</main>
       </div>

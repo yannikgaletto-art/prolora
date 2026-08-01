@@ -116,3 +116,21 @@ export function CloseIcon({ className = 'h-6 w-6' }: IconProps) {
     </Icon>
   );
 }
+
+// Guided thread (GuideBar): a completed step and the hand-off to the next one.
+export function CheckIcon({ className = 'h-4 w-4' }: IconProps) {
+  return (
+    <Icon className={className}>
+      <path d="m5 13 4 4L19 7" />
+    </Icon>
+  );
+}
+
+export function ArrowRightIcon({ className = 'h-4 w-4' }: IconProps) {
+  return (
+    <Icon className={className}>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </Icon>
+  );
+}
