@@ -286,6 +286,8 @@ export interface CreateContentItemInput {
   reason: string;
   actor: TransitionActor;
   actorId?: string | null;
+  language?: 'de' | 'en';
+  generationGroupId?: string | null;
 }
 
 export async function createContentItem(
@@ -307,6 +309,8 @@ export async function createContentItem(
       state: 'signal',
       signal_ref: input.signalRef,
       signal_kind: input.signalKind,
+      language: input.language ?? null,
+      generation_group_id: input.generationGroupId ?? null,
       title: input.title.slice(0, 300),
       strength: Math.min(1, Math.max(0, input.strength)),
       evidence: input.evidence,

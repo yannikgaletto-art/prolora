@@ -17,6 +17,7 @@ import { ApiError } from '@/lib/api/http';
 import { getServiceDb } from '@/lib/db';
 import { getPlatformRules } from '@/lib/validation/platform-rules';
 import { RESONANCE_FIELDS } from '@/lib/pipeline/quality-gate';
+import type { GenerationContext } from '@/lib/generation/types';
 
 export type ChannelFormat = 'post' | 'thread' | 'article';
 
@@ -157,6 +158,7 @@ export interface GenerateChannelNativeInput {
   /** Herkunft für die Kette in der UI. */
   evidenceSummary?: string | null;
   maxChannelsPerCall?: number;
+  generationContexts?: GenerationContext[];
 }
 
 const VARIANT_TOOL_SCHEMA = {
@@ -282,7 +284,10 @@ export async function generateChannelNativeVariants(
     return { variants: [], creditsUsed: 0, calls: 0, missingChannels: [] };
   }
 
-  const languageInstruction = await workspaceLanguageInstruction(workspaceId);
+  const explicitLanguage = input.generationContexts?.[0]?.language;
+  const languageInstruction = explicitLanguage
+    ? adaptationLanguageInstruction(explicitLanguage)
+    : await workspaceLanguageInstruction(workspaceId);
   const batches = chunkChannels(input.targets, input.maxChannelsPerCall ?? MAX_CHANNELS_PER_CALL);
   const client = getAnthropicClient();
 
@@ -306,6 +311,18 @@ export async function generateChannelNativeVariants(
           `channel_key: ${target.channelKey}\n${channelStyleRules(target)}`
       )
       .join('\n\n---\n\n');
+    const contextBlock = batch.map((target) => {
+      const context = input.generationContexts?.find((entry) => entry.platform === target.platform);
+      if (!context) return '';
+      return [
+        `Context for ${target.channelKey}:`,
+        `- language: ${context.language}`,
+        `- product mention: ${context.mention.decision}; ${context.mention.reason}`,
+        ...context.promptRules.map((rule) => `- style rule: ${rule.instruction}`),
+        ...context.samples.map((sample) => `- masked style sample: ${sample.maskedContent}`),
+        ...context.facts.map((fact) => `- confirmed fact: ${fact.factKey} = ${JSON.stringify(fact.value)}${fact.unit ? ` ${fact.unit}` : ''}`),
+      ].join('\n');
+    }).filter(Boolean).join('\n\n');
 
     const system = [
       'You write channel-native content for the Prolora content factory (DACH B2B).',
@@ -338,6 +355,7 @@ export async function generateChannelNativeVariants(
       '',
       'Proof assets (the ONLY permitted source of numbers):',
       proofBlock,
+      contextBlock ? `\nBinding generation context:\n${contextBlock}` : '',
       '',
       `Write for these ${batch.length} channels:`,
       channelBlock,

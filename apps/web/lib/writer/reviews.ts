@@ -2,6 +2,7 @@ import { ApiError } from '@/lib/api/http';
 import { getServiceDb, isMissingSchemaError } from '@/lib/db';
 import { hashCanonicalJson, sha256Hex } from './hash';
 import type { CanonicalJsonValue } from './types';
+import type { OutputLanguage, ProductMentionDecision } from '@/lib/generation/types';
 import {
   WRITER_MIGRATION_PENDING,
   type WriterWorkspaceRole,
@@ -46,6 +47,8 @@ export interface WriterReviewSnapshot {
     id: string;
     title: string;
     canonicalContent: string;
+    language?: OutputLanguage;
+    generationGroupId?: string;
   };
   variants: WriterReviewVariant[];
   proposedSlot: {
@@ -74,6 +77,18 @@ export interface WriterReviewSnapshot {
   dna: {
     profileId: string;
     version: number;
+  };
+  generation?: {
+    language: OutputLanguage;
+    contexts: Array<{
+      platform: string;
+      factsHash: string;
+      sampleHash: string;
+      factIds: string[];
+      sampleIds: string[];
+      mention: ProductMentionDecision;
+      asOf: string;
+    }>;
   };
   versions: {
     prompt: string;
@@ -223,6 +238,19 @@ export function buildWriterReviewSnapshot(
     proposedSlot: { ...input.proposedSlot },
     sources,
     dna: { ...input.dna },
+    ...(input.generation ? {
+      generation: {
+        language: input.generation.language,
+        contexts: input.generation.contexts
+          .map((context) => ({
+            ...context,
+            factIds: sortedUnique(context.factIds),
+            sampleIds: sortedUnique(context.sampleIds),
+            mention: { ...context.mention, ruleIds: [...context.mention.ruleIds].sort() },
+          }))
+          .sort((left, right) => left.platform.localeCompare(right.platform)),
+      },
+    } : {}),
     versions: {
       ...input.versions,
       promptHash: input.versions.promptHash ?? '',

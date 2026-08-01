@@ -339,3 +339,62 @@ REVOKE ALL ON FUNCTION update_writer_policy_narrative_atomic(UUID, INTEGER, TEXT
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION update_writer_policy_narrative_atomic(UUID, INTEGER, TEXT[], TEXT, TEXT)
   TO service_role;
+
+-- Wrapper keeps post creation and QA attachment in the same database
+-- transaction while retaining Migration 022's reviewed materialization logic.
+CREATE OR REPLACE FUNCTION materialize_writer_bundle_with_qa(
+  p_workspace_id UUID,
+  p_review_id UUID,
+  p_snapshot_hash TEXT,
+  p_approver_id UUID,
+  p_approver_role TEXT
+)
+RETURNS TABLE (post_group_id UUID, created BOOLEAN)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_post_group_id UUID;
+  v_created BOOLEAN;
+  v_review public.writer_review_bundles%ROWTYPE;
+BEGIN
+  SELECT result.post_group_id, result.created
+  INTO v_post_group_id, v_created
+  FROM public.materialize_writer_bundle(
+    p_workspace_id, p_review_id, p_snapshot_hash, p_approver_id, p_approver_role
+  ) AS result;
+
+  SELECT review.* INTO v_review
+  FROM public.writer_review_bundles AS review
+  WHERE review.id = p_review_id AND review.workspace_id = p_workspace_id;
+
+  UPDATE public.post_items AS post_item
+  SET qa_context = jsonb_build_object(
+    'origin', 'writer',
+    'language', v_review.snapshot -> 'generation' ->> 'language',
+    'contentHash', encode(digest(COALESCE(post_item.resolved_content, ''), 'sha256'), 'hex'),
+    'gateStatus', 'passed',
+    'gateVersion', v_review.gate_version,
+    'reviewId', v_review.id,
+    'snapshotHash', v_review.snapshot_hash,
+    'generation', COALESCE((
+      SELECT context
+      FROM jsonb_array_elements(v_review.snapshot -> 'generation' -> 'contexts') AS contexts(context)
+      WHERE context ->> 'platform' = post_item.platform
+      LIMIT 1
+    ), '{}'::jsonb)
+  )
+  FROM public.content_item_variants AS variant
+  WHERE post_item.content_item_variant_id = variant.id
+    AND variant.workspace_id = p_workspace_id
+    AND variant.content_item_id = v_review.content_item_id;
+
+  RETURN QUERY SELECT v_post_group_id, v_created;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION materialize_writer_bundle_with_qa(UUID, UUID, TEXT, UUID, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION materialize_writer_bundle_with_qa(UUID, UUID, TEXT, UUID, TEXT)
+  TO service_role;

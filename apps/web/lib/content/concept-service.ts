@@ -21,6 +21,7 @@ import { listProofAssets, normalizeProfileFields } from '@/lib/product/profile';
 import { listContentReferences } from '@/lib/content/references';
 import { matchReferences } from '@/lib/content/reference-matcher';
 import { LONGFORM_MIN_BUDGET, PLATFORM_NOTES } from '@/lib/templates/render-prompt';
+import type { GenerationContext } from '@/lib/generation/types';
 
 const MAX_RETRIES = 1;
 const REQUIRED_LENSES: ConceptLens[] = ['evidence', 'founder', 'community'];
@@ -32,6 +33,9 @@ export interface GenerateConceptsInput {
   follow_up_answers?: string[];
   settings: ConceptSettings;
   target_platforms: PlatformType[];
+  /** Explicit generation language; dashboard locale is never an implicit substitute. */
+  output_language?: 'de' | 'en';
+  generation_contexts?: GenerationContext[];
 }
 
 // Character windows per gear length setting (spec "Content Settings").
@@ -201,7 +205,7 @@ export async function generateConcepts(
   ];
   const matched = matchReferences(references, input.content_goal, keywords, 3);
 
-  const language = context?.voice_language?.trim() || 'de';
+  const language = (input.output_language ?? context?.voice_language?.trim()) || 'de';
   const tone = context?.voice_tone?.trim() || 'casual';
   const [minLength] = LENGTH_WINDOWS[input.settings.length];
   const effectiveMax = Math.min(LENGTH_WINDOWS[input.settings.length][1], budget);
@@ -262,6 +266,16 @@ export async function generateConcepts(
           )
           .join('\n')
       : '(no matching patterns — rely on the lens definitions)';
+  const generationContextBlock = (input.generation_contexts ?? []).map((generation) => [
+    `Platform: ${generation.platform}; language: ${generation.language}`,
+    `Product mention: ${generation.mention.decision} — ${generation.mention.reason}`,
+    'Style rules:',
+    ...generation.promptRules.map((rule) => `- ${rule.instruction}`),
+    'Masked Golden Samples (style only; never copy wording or infer facts):',
+    ...generation.samples.map((sample) => `- ${sample.maskedContent}`),
+    'Confirmed facts valid at as_of:',
+    ...generation.facts.map((fact) => `- ${fact.factKey} = ${JSON.stringify(fact.value)}${fact.unit ? ` ${fact.unit}` : ''}`),
+  ].join('\n')).join('\n\n');
 
   const user = [
     `Product: ${context?.product_description ?? '(no description yet)'}`,
@@ -282,6 +296,7 @@ export async function generateConcepts(
     '',
     'Reference patterns (structure inspiration only):',
     referenceBlock,
+    generationContextBlock ? '\nGeneration context (binding):\n' + generationContextBlock : '',
   ]
     .filter((line) => line !== '')
     .join('\n');

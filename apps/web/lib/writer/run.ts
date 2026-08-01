@@ -5,6 +5,7 @@ import {
   type PlatformType,
   type PostConcept,
 } from '@prolora/shared';
+import { randomUUID } from 'node:crypto';
 import { ApiError } from '@/lib/api/http';
 import { generateConcepts } from '@/lib/content/concept-service';
 import { getServiceDb, isMissingSchemaError } from '@/lib/db';
@@ -35,6 +36,9 @@ import { sha256Hex } from './hash';
 import { getWriterPolicy, type WriterPolicy } from './policy';
 import { createWriterReview, type WriterReviewSnapshotInput } from './reviews';
 import { getContentDna } from './samples';
+import type { OutputLanguage } from '@/lib/generation/types';
+import type { GenerationContext } from '@/lib/generation/types';
+import { resolveGenerationContext } from '@/lib/generation/context';
 
 export type WriterRunPolicy = WriterPolicy;
 export type WriterRunMode = 'normal' | 'shadow';
@@ -111,15 +115,26 @@ export interface WriterGateAttempt {
 export interface WriterRunDependencies {
   loadPolicy(workspaceId: string): Promise<WriterRunPolicy>;
   loadUsage(workspaceId: string, now: Date): Promise<WriterRunUsage>;
-  listSignals(workspaceId: string, minimumStrength: number): Promise<WriterRunSignal[]>;
+  listSignals(workspaceId: string, minimumStrength: number, language: OutputLanguage): Promise<WriterRunSignal[]>;
   loadTargets(workspaceId: string): Promise<WriterRunTarget[]>;
   loadDna(workspaceId: string, profileId: string | null): Promise<WriterRunDna>;
   loadProofs(workspaceId: string, ids: string[]): Promise<WriterRunProof[]>;
+  loadGenerationContext?(workspaceId: string, input: {
+    language: OutputLanguage;
+    platform: string;
+    category: string;
+    asOf: string;
+    mentionMode: WriterRunPolicy['productMentionMode'];
+    productRelevant: boolean;
+    communityRulesKnown: boolean;
+  }): Promise<GenerationContext>;
   createItem(input: {
     workspaceId: string;
     signalRef: string;
     signal: WriterRunSignal;
     mixBucket: MixBucket;
+    language: OutputLanguage;
+    generationGroupId: string;
   }): Promise<{ id: string }>;
   transitionItem(
     itemId: string,
@@ -142,6 +157,8 @@ export interface WriterRunDependencies {
     targets: WriterRunTarget[];
     mixBucket: MixBucket;
     dna: WriterRunDna;
+    language: OutputLanguage;
+    contexts: GenerationContext[];
   }): Promise<WriterRunConcept>;
   generateVariants(input: {
     workspaceId: string;
@@ -151,10 +168,13 @@ export interface WriterRunDependencies {
     proofs: WriterRunProof[];
     repairAttempt: number;
     remedies: Exclude<GateRemedy, null>[];
+    language: OutputLanguage;
+    contexts: GenerationContext[];
   }): Promise<WriterRunVariant[]>;
   evaluateVariant(
     variant: WriterRunVariant,
-    proofs: WriterRunProof[]
+    proofs: WriterRunProof[],
+    context?: GenerationContext
   ): Promise<GateResult>;
   persistGateAttempt(
     workspaceId: string,
@@ -183,6 +203,7 @@ export interface WriterRunResult {
     timezone: string;
   };
   repairAttempts: number;
+  language: OutputLanguage;
 }
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -256,11 +277,18 @@ function writerGateResultJson(
 }
 
 export async function executeWriterRun(
-  input: { workspaceId: string; mode: WriterRunMode },
+  input: {
+    workspaceId: string;
+    mode: WriterRunMode;
+    language?: OutputLanguage;
+    generationGroupId?: string;
+  },
   dependencies: WriterRunDependencies,
   now: Date = new Date()
 ): Promise<WriterRunResult> {
   const policy = await dependencies.loadPolicy(input.workspaceId);
+  const language = input.language ?? policy.outputLanguages[0] ?? 'de';
+  const generationGroupId = input.generationGroupId ?? randomUUID();
   if (!policy.enabled && input.mode !== 'shadow') {
     throw new ApiError(409, 'Writer is paused for this workspace.', 'writer_paused');
   }
@@ -283,7 +311,8 @@ export async function executeWriterRun(
 
   const signals = await dependencies.listSignals(
     input.workspaceId,
-    policy.minimumSignalStrength
+    policy.minimumSignalStrength,
+    language
   );
   const signal = rankWriterSignals(signals, now, policy.contentMix)[0];
   if (!signal) {
@@ -332,11 +361,29 @@ export async function executeWriterRun(
     );
   }
   const mixBucket = mixBucketForWriterSignal(signal.kind);
+  const contexts = dependencies.loadGenerationContext
+    ? await Promise.all(
+        [...new Set(targets.map((target) => target.platform))].map((platform) =>
+          dependencies.loadGenerationContext!(input.workspaceId, {
+            language,
+            platform,
+            category: mixBucket,
+            asOf: now.toISOString(),
+            mentionMode: policy.productMentionMode,
+            productRelevant:
+              signal.evidence.proofAssetIds.length > 0 || /\bpathly\b/iu.test(signal.title),
+            communityRulesKnown: !['reddit', 'discord'].includes(platform),
+          })
+        )
+      )
+    : [];
   const item = await dependencies.createItem({
     workspaceId: input.workspaceId,
     signalRef: signal.id,
     signal,
     mixBucket,
+    language,
+    generationGroupId,
   });
   await dependencies.transitionItem(item.id, 'angled', {
     workspaceId: input.workspaceId,
@@ -351,6 +398,8 @@ export async function executeWriterRun(
     targets,
     mixBucket,
     dna,
+    language,
+    contexts,
   });
   await dependencies.transitionItem(item.id, 'concepted', {
     workspaceId: input.workspaceId,
@@ -380,6 +429,8 @@ export async function executeWriterRun(
       proofs,
       repairAttempt: repairAttempts,
       remedies,
+      language,
+      contexts,
     });
     if (repairAttempts === 0) {
       await dependencies.transitionItem(item.id, 'drafted', {
@@ -390,7 +441,11 @@ export async function executeWriterRun(
     }
 
     gates = await Promise.all(
-      variants.map((variant) => dependencies.evaluateVariant(variant, proofs))
+      variants.map((variant) => dependencies.evaluateVariant(
+        variant,
+        proofs,
+        contexts.find((context) => context.platform === variant.platform)
+      ))
     );
     remedies = uniqueRemedies(gates);
     await Promise.all(
@@ -468,6 +523,8 @@ export async function executeWriterRun(
       id: item.id,
       title: signal.title,
       canonicalContent: concept.canonicalContent,
+      language,
+      generationGroupId,
     },
     variants: variants.map((variant) => {
       const target = targetByConnection.get(variant.connectionId);
@@ -513,9 +570,21 @@ export async function executeWriterRun(
       referenceIds: signal.evidence.referenceIds,
     },
     dna: { profileId: dna.profileId, version: dna.version },
+    generation: {
+      language,
+      contexts: contexts.map((context) => ({
+        platform: context.platform,
+        factsHash: context.factsHash,
+        sampleHash: context.sampleHash,
+        factIds: context.facts.map((fact) => fact.id),
+        sampleIds: context.samples.map((sample) => sample.id),
+        mention: context.mention,
+        asOf: context.asOf,
+      })),
+    },
     versions: {
       prompt: concept.promptVersion,
-      gate: 'quality-gate-v1',
+      gate: contexts.length > 0 ? 'narrative-gate-v1' : 'quality-gate-v1',
       policy: policy.policyVersion,
     },
   };
@@ -540,6 +609,7 @@ export async function executeWriterRun(
     state: 'awaiting_approval',
     proposedSlot: snapshot.proposedSlot,
     repairAttempts,
+    language,
   };
 }
 
@@ -585,7 +655,8 @@ function conceptLensForBucket(bucket: MixBucket): PostConcept['lens'] {
 
 async function loadUnusedWriterSignals(
   workspaceId: string,
-  minimumStrength: number
+  minimumStrength: number,
+  language: OutputLanguage
 ): Promise<WriterRunSignal[]> {
   const signals = await listSignals(workspaceId, {
     minStrength: minimumStrength,
@@ -596,6 +667,7 @@ async function loadUnusedWriterSignals(
     .from('content_items')
     .select('signal_ref')
     .eq('workspace_id', workspaceId)
+    .eq('language', language)
     .in(
       'signal_ref',
       signals.map((signal) => signal.id)
@@ -682,7 +754,8 @@ const defaultDependencies: WriterRunDependencies = {
       consentStatus: proof.consentStatus,
       verifiedAt: proof.verifiedAt,
     })),
-  createItem: async ({ workspaceId, signal, mixBucket }) =>
+  loadGenerationContext: (workspaceId, input) => resolveGenerationContext(workspaceId, input),
+  createItem: async ({ workspaceId, signal, mixBucket, language, generationGroupId }) =>
     createContentItem(workspaceId, {
       signalRef: signal.id,
       signalKind: signal.kind,
@@ -694,6 +767,8 @@ const defaultDependencies: WriterRunDependencies = {
       },
       mixBucket,
       staleAfter: signal.staleAfter,
+      language,
+      generationGroupId,
       reason: 'Writer selected this signal for one bounded recommendation.',
       actor: 'system',
     }),
@@ -710,7 +785,7 @@ const defaultDependencies: WriterRunDependencies = {
       detail.patch
     );
   },
-  generateConcept: async ({ workspaceId, signal, targets, mixBucket, dna }) => {
+  generateConcept: async ({ workspaceId, signal, targets, mixBucket, dna, language, contexts }) => {
     const response = await generateConcepts(workspaceId, {
       content_goal: GOAL_BY_BUCKET[mixBucket],
       angle: signal.title,
@@ -719,6 +794,8 @@ const defaultDependencies: WriterRunDependencies = {
       target_platforms: [
         ...new Set(targets.map((target) => target.platform as PlatformType)),
       ],
+      output_language: language,
+      generation_contexts: contexts,
     });
     const preferredLens = conceptLensForBucket(mixBucket);
     const concept =
@@ -743,6 +820,7 @@ const defaultDependencies: WriterRunDependencies = {
     proofs,
     repairAttempt,
     remedies,
+    contexts,
   }) => {
     const result = await generateChannelNativeVariants(workspaceId, {
       concept,
@@ -763,6 +841,7 @@ const defaultDependencies: WriterRunDependencies = {
         repairAttempt === 0
           ? null
           : `Repair attempt ${repairAttempt}. Apply only these remedies: ${remedies.join(', ')}.`,
+      generationContexts: contexts,
     });
     return Promise.all(
       result.variants.map(async (variant) => {
@@ -791,12 +870,19 @@ const defaultDependencies: WriterRunDependencies = {
       })
     );
   },
-  evaluateVariant: (variant, proofs) =>
+  evaluateVariant: (variant, proofs, context) =>
     runQualityGate({
       content: variant.content,
       platform: variant.platform as PlatformType,
       structure: variant.structure,
       proofAssets: proofs,
+      narrative: context ? {
+        language: context.language,
+        mention: context.mention,
+        facts: context.facts,
+        samples: context.samples.map((sample) => ({ id: sample.id, maskedContent: sample.maskedContent })),
+        semanticJudgeRequired: false,
+      } : undefined,
     }),
   persistGateAttempt: async (workspaceId, variantId, repairAttempt, attempt) => {
     await saveVariantGateResult(
@@ -819,6 +905,28 @@ const defaultDependencies: WriterRunDependencies = {
 export async function runWriter(
   input: { workspaceId: string; mode: WriterRunMode },
   now: Date = new Date()
-): Promise<WriterRunResult> {
-  return executeWriterRun(input, defaultDependencies, now);
+): Promise<WriterRunResult[]> {
+  const policy = await getWriterPolicy(input.workspaceId);
+  return executeWriterLanguages(
+    { ...input, languages: policy.outputLanguages },
+    defaultDependencies,
+    now
+  );
+}
+
+export async function executeWriterLanguages(
+  input: { workspaceId: string; mode: WriterRunMode; languages: OutputLanguage[] },
+  dependencies: WriterRunDependencies,
+  now: Date = new Date(),
+  generationGroupId = randomUUID()
+): Promise<WriterRunResult[]> {
+  const results: WriterRunResult[] = [];
+  for (const language of [...new Set(input.languages)]) {
+    results.push(await executeWriterRun(
+      { workspaceId: input.workspaceId, mode: input.mode, language, generationGroupId },
+      dependencies,
+      now
+    ));
+  }
+  return results;
 }

@@ -23,7 +23,7 @@ function isMissingMaterializeFunction(error: {
 }): boolean {
   return (
     isMissingSchemaError(error.code) ||
-    (Boolean(error.message?.includes('materialize_writer_bundle')) &&
+    (Boolean(error.message?.includes('materialize_writer_bundle_with_qa')) &&
       ((error.code === 'PGRST202' && /could not find/iu.test(error.message ?? '')) ||
         (error.code === '42883' && /does not exist/iu.test(error.message ?? ''))))
   );
@@ -47,7 +47,7 @@ export async function materializeWriterBundle(
   approverId: string,
   approverRole: WriterWorkspaceRole
 ): Promise<MaterializedWriterBundle> {
-  const { data, error } = await getServiceDb().rpc('materialize_writer_bundle', {
+  const { data, error } = await getServiceDb().rpc('materialize_writer_bundle_with_qa', {
     p_workspace_id: workspaceId,
     p_review_id: reviewId,
     p_snapshot_hash: snapshotHash,
