@@ -16,7 +16,6 @@ import {
   SettingsIcon,
 } from './NavIcons';
 import { UserMenu } from './UserMenu';
-import { GuideBar, type GuideBarProps } from './GuideBar';
 
 interface NavItem {
   href: string;
@@ -74,15 +73,17 @@ function NavLink({
   );
 }
 
+// GOAL-RUN11: die GuideBar ("Schritt x von 6") ist raus — fehlende
+// Voraussetzungen fragt der One-Path-Posten-Button just-in-time ab, statt
+// als drittes Navigationssystem über allem zu hängen. GuideBar.tsx und
+// lib/guide/ bleiben liegen (D3: nichts löschen).
 export interface AppShellProps {
   workspaceName: string;
   userEmail: string;
-  /** Der geführte Faden. Null, wenn er sich nicht laden ließ — dann keine Leiste. */
-  guide: GuideBarProps | null;
   children: ReactNode;
 }
 
-export function AppShell({ workspaceName, userEmail, guide, children }: AppShellProps) {
+export function AppShell({ workspaceName, userEmail, children }: AppShellProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [moreExpanded, setMoreExpanded] = useState(false);
@@ -219,8 +220,6 @@ export function AppShell({ workspaceName, userEmail, guide, children }: AppShell
           </div>
           <UserMenu email={userEmail} />
         </header>
-
-        {guide && <GuideBar guide={guide.guide} copy={guide.copy} />}
 
         <main className="mx-auto max-w-6xl px-4 py-6 lg:px-8 lg:py-8">{children}</main>
       </div>

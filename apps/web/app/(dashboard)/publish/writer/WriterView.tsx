@@ -544,7 +544,9 @@ function SetupState({
 }) {
   const content =
     availability === 'migration_pending'
-      ? { title: copy.setup.migrationTitle, body: copy.setup.migrationBody, tone: 'amber' }
+      ? // GOAL-RUN11 D6: fehlende Einrichtung ist ein neutraler Setup-Zustand,
+        // kein Warnfall — blau statt amber auf jungfräulichen Accounts.
+        { title: copy.setup.migrationTitle, body: copy.setup.migrationBody, tone: 'blue' }
       : availability === 'unavailable'
         ? { title: copy.setup.unavailableTitle, body: copy.setup.unavailableBody, tone: 'red' }
         : { title: copy.setup.setupTitle, body: copy.setup.setupBody, tone: 'blue' };

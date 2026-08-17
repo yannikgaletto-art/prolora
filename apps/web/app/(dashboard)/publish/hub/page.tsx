@@ -42,7 +42,7 @@ export default async function ContentHubPage() {
           Ein Pillar-Text — viele kanal-native Posts. Schreiben, diktieren oder Blog-URL importieren.
         </p>
       </div>
-      <PublishTabs active="hub" />
+      <PublishTabs active="hub" locale={locale} />
       <HubView connections={connections} aiState={systemStatus.features.ai_drafts} locale={locale} />
     </div>
   );

@@ -173,16 +173,25 @@ export function CockpitView({
           )}
           <span className="ml-auto flex items-center gap-2">
             <span className="text-gray-500">{copy.coverage_label}</span>
-            <Badge tone={coverageTone(counts.coverageDays)}>
+            <Badge
+              tone={coverageTone(
+                counts.coverageDays,
+                counts.scheduledToday + counts.inGate + counts.needsProof + counts.blocked + counts.stalled > 0
+              )}
+            >
               {counts.coverageDays === null
                 ? copy.coverage_unknown
                 : fillCopy(copy.coverage_days, { days: counts.coverageDays })}
             </Badge>
           </span>
         </div>
-        {counts.coverageDays !== null && counts.coverageDays < 3 && (
-          <p className="mt-3 text-sm text-red-700">{copy.coverage_warning}</p>
-        )}
+        {/* GOAL-RUN11 D6: nur warnen, wenn die Fabrik überhaupt läuft — ein
+            leerer Account bekommt keine rote Warnung vor dem ersten Post. */}
+        {counts.coverageDays !== null &&
+          counts.coverageDays < 3 &&
+          counts.scheduledToday + counts.inGate + counts.needsProof + counts.blocked + counts.stalled > 0 && (
+            <p className="mt-3 text-sm text-red-700">{copy.coverage_warning}</p>
+          )}
         {estimate && (
           <div className="mt-4 rounded-md bg-gray-50 px-4 py-3 text-sm text-gray-700">
             <p className="font-medium text-gray-900">{copy.estimate_title}</p>

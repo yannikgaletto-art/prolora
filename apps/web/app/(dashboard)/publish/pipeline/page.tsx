@@ -53,7 +53,7 @@ export default async function PipelinePage() {
         <h1 className="text-2xl font-bold text-gray-900">{copy.title}</h1>
         <p className="mt-1 text-sm text-gray-500">{copy.subtitle}</p>
       </div>
-      <PublishTabs active="pipeline" />
+      <PublishTabs active="pipeline" locale={locale} />
       <CockpitView
         copy={copy}
         counts={cockpit.counts}

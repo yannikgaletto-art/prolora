@@ -1,9 +1,12 @@
 // Verdrahtungstest im Hausmuster von `writer-ui.test.ts`: das Testsetup läuft
 // ohne DOM, also wird die Quelle gelesen statt gerendert.
 //
-// Warum es diese Datei gibt: `resolveGuide` kann perfekt funktionieren und der
-// Faden trotzdem nie erscheinen, weil ein Aufrufer ihn nicht durchreicht. Genau
-// diese Lücke ("Test befriedigt, Verhalten unverändert") soll hier auffallen.
+// GOAL-RUN11 hat die Richtung umgedreht: die GuideBar ("Schritt x von 6") war
+// ein drittes Navigationssystem und ist bewusst aus Layout und Shell entfernt
+// (D4 — Voraussetzungen fragt der One-Path-Posten-Button just-in-time ab).
+// Dieser Test friert die ENTFERNUNG ein, damit die Leiste nicht durch einen
+// Merge oder ein Refactoring stillschweigend zurückkommt. `lib/guide/` selbst
+// bleibt liegen (D3) — die Locale-Tests unten sichern es weiter ab.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -17,31 +20,27 @@ function source(relativePath: string): string {
 
 const layout = source('app/(dashboard)/layout.tsx');
 const appShell = source('app/components/AppShell.tsx');
-const guideBar = source('app/components/GuideBar.tsx');
 
-describe('Faden ist tatsächlich verdrahtet', () => {
-  test('das Dashboard-Layout lädt den Zustand und löst ihn auf', () => {
-    expect(layout).toContain('loadGuideState');
-    expect(layout).toContain('resolveGuide');
-    expect(layout).toContain('getGuideCopy');
+describe('GuideBar bleibt ausgebaut (GOAL-RUN11 D4)', () => {
+  test('das Dashboard-Layout lädt den Faden nicht mehr', () => {
+    expect(layout).not.toContain('loadGuideState');
+    expect(layout).not.toContain('resolveGuide');
+    expect(layout).not.toContain('getGuideCopy');
   });
 
-  test('das Layout reicht den Faden an die Shell durch', () => {
-    expect(layout).toMatch(/<AppShell[^>]*guide=\{guide\}/s);
+  test('die Shell rendert keine Leiste mehr', () => {
+    // Nur Import und JSX zählen — der Erklär-Kommentar darf sie nennen.
+    expect(appShell).not.toContain('<GuideBar');
+    expect(appShell).not.toMatch(/import\s+\{[^}]*GuideBar/);
   });
 
-  test('die Shell rendert die Leiste wirklich', () => {
-    expect(appShell).toContain('<GuideBar');
-    expect(appShell).toMatch(/guide &&\s*<GuideBar/);
-  });
-
-  // Ein Fehler im Faden darf nie das ganze Dashboard verhindern.
-  test('das Layout fängt Fehler des Fadens ab', () => {
-    expect(layout).toMatch(/try\s*\{[\s\S]*loadGuideState[\s\S]*\}\s*catch/);
-  });
-
-  test('die Leiste ist eine Client-Komponente', () => {
-    expect(guideBar.trimStart().startsWith("'use client'")).toBe(true);
+  // Der Just-in-time-Ersatz: der One-Path-Screen behandelt "kein Kanal" am
+  // Posten-Button statt als Vorbedingungs-Banner.
+  test('der One-Path-Screen übernimmt den Connect-Moment', () => {
+    const onePath = source('app/(dashboard)/publish/OnePath.tsx');
+    expect(onePath).toContain('connectPrompt');
+    expect(onePath).toContain('/connections');
+    expect(onePath).toContain('storeAppliedTemplate');
   });
 });
 

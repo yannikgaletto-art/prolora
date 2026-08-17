@@ -3,16 +3,18 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getConnectionsWithCharacterLimits } from '@/lib/connections/list-connections';
-import { getDict } from '@/lib/i18n';
 import { getLocale } from '@/lib/i18n/server';
-import { PublishTabs } from './PublishTabs';
-import { PostComposer } from './PostComposer';
 import { getSystemStatus } from '@/lib/system/doctor';
+import { PublishTabs } from './PublishTabs';
+import { OnePath } from './OnePath';
 
 export const metadata: Metadata = { title: 'Publish — Prolora' };
 
-// Server Component (F0-4, Pfad A): reads connections through the lib/
-// service layer directly, never by fetch()-ing our own /api/v1/connections.
+// GOAL-RUN11 One Path: /publish is the single main path (say → review → post).
+// The former card composer (PostComposer.tsx) survives as the parts bin for
+// the review state's inline editors; the guided RUN9 flow stays at
+// /publish/start behind the Werkzeuge menu.
+// Server Component (F0-4, Pfad A): reads through lib/, never own API routes.
 export default async function PublishPage() {
   const supabase = await createSupabaseServerClient();
   const workspace = await getActiveWorkspace(supabase);
@@ -23,27 +25,14 @@ export default async function PublishPage() {
     getLocale(),
     getSystemStatus(workspace.id),
   ]);
-  const dict = getDict(locale);
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-lg font-semibold text-gray-900">Publish</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Write once, publish everywhere you&apos;re connected.
-        </p>
-      </div>
-      <PublishTabs active="compose" />
-      <PostComposer
+      <PublishTabs active="compose" locale={locale} />
+      <OnePath
         connections={connections}
         locale={locale}
         mediaFeature={systemStatus.features.media_generation}
-        wizardStrings={{
-          entryButton: dict.entry_button,
-          entryPromise: dict.entry_promise,
-          toastApplied: dict.toast_applied,
-          toastExpired: dict.toast_expired,
-        }}
       />
     </div>
   );

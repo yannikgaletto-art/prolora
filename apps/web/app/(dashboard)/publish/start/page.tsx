@@ -27,7 +27,7 @@ export default async function StartPage() {
         <h1 className="text-lg font-semibold text-gray-900">{copy.start_title}</h1>
         <p className="mt-1 text-sm text-gray-500">{copy.start_subtitle}</p>
       </div>
-      <PublishTabs active="start" />
+      <PublishTabs active="start" locale={locale} />
       <StartFlow
         locale={locale}
         workspaceName={workspace.name}

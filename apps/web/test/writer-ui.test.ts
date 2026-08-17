@@ -55,23 +55,26 @@ const review: WriterReview = {
 };
 
 describe('Writer pilot navigation', () => {
-  test('preserves every existing Publish tab and inserts Writer only after Start', () => {
+  // GOAL-RUN11: die acht gleichrangigen Tabs sind auf Post + Verlauf
+  // geschrumpft; Writer bleibt erreichbar, aber im Werkzeuge-Menü (D3).
+  test('Writer bleibt über das Werkzeuge-Menü erreichbar', () => {
     const tabs = source('app/(dashboard)/publish/PublishTabs.tsx');
-    const labels = [...tabs.matchAll(/label:\s*'([^']+)'/g)].map((match) => match[1]);
 
-    expect(labels).toEqual([
-      'Start',
-      'Writer',
-      'Compose',
-      'Fabrik',
-      'Calendar',
-      'Content Hub',
-      'Posts',
-      'Media',
-    ]);
-    expect(tabs).toMatch(
-      /key:\s*'writer'[\s\S]*label:\s*'Writer'[\s\S]*href:\s*'\/publish\/writer'[\s\S]*badge:\s*'Pilot'/
-    );
+    expect(tabs).toMatch(/key:\s*'writer'[\s\S]*href:\s*'\/publish\/writer'/);
+    // Primär sichtbar sind genau zwei Wege: Post (Hauptweg) und Verlauf.
+    expect(tabs).toMatch(/key:\s*'compose'[\s\S]*href:\s*'\/publish'/);
+    expect(tabs).toMatch(/key:\s*'posts'[\s\S]*href:\s*'\/publish\/posts'/);
+    // Alle früheren Tab-Ziele existieren weiter — nichts wurde gelöscht.
+    for (const href of [
+      '/publish/start',
+      '/publish/writer',
+      '/publish/pipeline',
+      '/publish/calendar',
+      '/publish/hub',
+      '/publish/media',
+    ]) {
+      expect(tabs).toContain(`'${href}'`);
+    }
   });
 });
 

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getCalendar } from '@/lib/posts/calendar';
+import { getLocale } from '@/lib/i18n/server';
 import { PublishTabs } from '../PublishTabs';
 import { CalendarView } from './CalendarView';
 
@@ -28,7 +29,7 @@ export default async function PublishCalendarPage() {
         <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
         <p className="mt-1 text-sm text-gray-500">Schedule and manage your content.</p>
       </div>
-      <PublishTabs active="calendar" />
+      <PublishTabs active="calendar" locale={await getLocale()} />
       <CalendarView initialGroups={initial.groups} initialDrafts={initial.drafts} />
     </div>
   );

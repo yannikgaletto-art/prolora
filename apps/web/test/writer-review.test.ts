@@ -209,6 +209,10 @@ describe('Writer approval validation', () => {
     content: 'Original proof content.',
   }));
 
+  // Frozen clock inside the fixture's validity window — without it these
+  // tests became time bombs once the hardcoded expires_at (2026-08-02) passed.
+  const FROZEN_NOW = new Date('2026-07-31T08:00:00.000Z');
+
   test.each(['owner', 'admin'] as const)('allows %s approval', (role) => {
     const review = reviewRow();
     expect(() =>
@@ -233,6 +237,7 @@ describe('Writer approval validation', () => {
         role,
         connections,
         proofs,
+        now: FROZEN_NOW,
       })
     ).toThrowError(
       expect.objectContaining({ status: 403, code: 'approval_role_required' }) as ApiError
@@ -248,6 +253,7 @@ describe('Writer approval validation', () => {
         role: 'admin',
         connections,
         proofs,
+        now: FROZEN_NOW,
       })
     ).toThrowError(expect.objectContaining({ status: 409, code: 'stale_review' }) as ApiError);
 
@@ -259,6 +265,7 @@ describe('Writer approval validation', () => {
         role: 'admin',
         connections,
         proofs,
+        now: FROZEN_NOW,
       })
     ).toThrowError(expect.objectContaining({ status: 409, code: 'stale_review' }) as ApiError);
   });
@@ -272,6 +279,7 @@ describe('Writer approval validation', () => {
         role: 'owner',
         connections: [{ ...connections[0], status: 'revoked' }, connections[1]],
         proofs,
+        now: FROZEN_NOW,
       })
     ).toThrowError(
       expect.objectContaining({ status: 409, code: 'approval_context_changed' }) as ApiError
@@ -284,6 +292,7 @@ describe('Writer approval validation', () => {
         role: 'owner',
         connections,
         proofs: [{ ...proofs[0], consent_status: 'denied' }],
+        now: FROZEN_NOW,
       })
     ).toThrowError(
       expect.objectContaining({ status: 409, code: 'approval_context_changed' }) as ApiError
@@ -299,6 +308,7 @@ describe('Writer approval validation', () => {
         role: 'owner',
         connections,
         proofs: [{ ...proofs[0], content: 'Changed proof content.' }],
+        now: FROZEN_NOW,
       })
     ).toThrowError(
       expect.objectContaining({ status: 409, code: 'approval_context_changed' }) as ApiError

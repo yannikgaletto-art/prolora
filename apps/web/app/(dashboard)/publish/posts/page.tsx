@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getActiveWorkspace } from '@/lib/workspace/active';
 import { getPostGroups } from '@/lib/posts/list-posts';
 import { createSignedMediaPreviews } from '@/lib/media/transform';
+import { getLocale } from '@/lib/i18n/server';
 import { PublishTabs } from '../PublishTabs';
 import { PostsExplorer } from './PostsExplorer';
 
@@ -72,7 +73,7 @@ export default async function PublishPostsPage({ searchParams }: PublishPostsPag
         <h1 className="text-lg font-semibold text-gray-900">Publish</h1>
         <p className="mt-1 text-sm text-gray-500">All posts created from this workspace.</p>
       </div>
-      <PublishTabs active="posts" />
+      <PublishTabs active="posts" locale={await getLocale()} />
       <PostsExplorer
         posts={posts}
         mediaPreviews={mediaPreviews}

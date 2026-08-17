@@ -54,9 +54,12 @@ export function provenanceChain(
   return chain;
 }
 
-/** Reichweiten-Ampel: warnt BEVOR die Kadenz einbricht, nicht danach (§8). */
-export function coverageTone(days: number | null): BadgeTone {
+/** Reichweiten-Ampel: warnt BEVOR die Kadenz einbricht, nicht danach (§8).
+ *  GOAL-RUN11 D6: eine Fabrik ohne jedes Werkstück ist leer, nicht kaputt —
+ *  dort bleibt die Ampel grau statt rot (`hasWork` = irgendein Item existiert). */
+export function coverageTone(days: number | null, hasWork = true): BadgeTone {
   if (days === null) return 'gray';
+  if (!hasWork) return 'gray';
   if (days < 3) return 'red';
   if (days < 7) return 'amber';
   return 'green';
