@@ -31,6 +31,7 @@ async function loadSuggestions(workspaceId: string): Promise<AngleSuggestion[]> 
       coreValue: profile.core_value,
       proofAssets,
       references,
+      founderPerspective: profile.founder_perspective,
     });
   } catch (error) {
     console.error('[onepath] angle suggestions unavailable:', error);

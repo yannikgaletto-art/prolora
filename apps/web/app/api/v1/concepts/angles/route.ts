@@ -30,6 +30,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       coreValue: profile.core_value,
       proofAssets,
       references,
+      founderPerspective: profile.founder_perspective,
     });
 
     // Honesty invariant (T1.2): engagement leaves the API only when verified.

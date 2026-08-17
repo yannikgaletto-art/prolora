@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { PostConcept } from '@prolora/shared';
 import { derivePlatforms, pickBestConcept } from '@/lib/publish/prepare';
 import { coverageTone } from '@/app/(dashboard)/publish/pipeline/cockpit-logic';
+import { suggestAngles } from '@/lib/content/angle-service';
 
 function concept(overrides: Partial<PostConcept>): PostConcept {
   return {
@@ -65,6 +66,47 @@ describe('pickBestConcept', () => {
 
   it('returns null for an empty concept list (follow-up round)', () => {
     expect(pickBestConcept([])).toBeNull();
+  });
+});
+
+describe('suggestAngles material diversity (RUN11 feedback 17.08.)', () => {
+  const singleProof = {
+    id: 'p1',
+    type: 'metric' as const,
+    content: 'Pathly-Nutzer landen 26 % öfter im Job-Interview als vergleichbar Qualifizierte.',
+    source_url: null,
+    verified_at: null,
+    created_at: '2026-08-01T00:00:00.000Z',
+  };
+
+  it('never opens two cards with the same material when only one proof asset exists', () => {
+    const angles = suggestAngles({
+      goal: 'authority',
+      productDescription: 'Pathly — KI-Bewerbungscoach',
+      coreValue: ['Schneller zum Interview'],
+      proofAssets: [singleProof],
+      references: [],
+      founderPerspective: 'Ich glaube, Anschreiben sind das falsche Optimierungsziel.',
+    });
+    const openings = angles.map((angle) => angle.title.slice(0, 40));
+    expect(new Set(openings).size).toBe(3);
+    // Der eine Beleg gehört der Evidence-Karte; die anderen ziehen anderes Material.
+    expect(angles[0].title).toContain('26');
+    expect(angles[1].title).not.toContain('26');
+    expect(angles[2].title).not.toContain('26');
+  });
+
+  it('titles read as hooks, not meta prose', () => {
+    const angles = suggestAngles({
+      goal: 'authority',
+      productDescription: null,
+      coreValue: [],
+      proofAssets: [singleProof],
+      references: [],
+    });
+    for (const angle of angles) {
+      expect(angle.title).not.toMatch(/^Deine Zahl als Story|^Founder-Einblick:/);
+    }
   });
 });
 

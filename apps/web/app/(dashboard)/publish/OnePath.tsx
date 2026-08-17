@@ -385,18 +385,22 @@ export function OnePath({
                     : 'border-gray-200 hover:border-primary-300 hover:bg-primary-50/40'
                 } disabled:opacity-60`}
               >
+                {/* RUN11-Feedback: eine Informationsebene — die Karte IST die
+                    Punchline. Briefing (`angle`) und Begründung bleiben Daten
+                    für die Generierung, nicht fürs Auge. */}
                 <span className="flex items-start justify-between gap-3">
-                  <span className="text-sm font-semibold text-gray-900">{suggestion.title}</span>
-                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                  <span className="text-[15px] font-semibold leading-snug text-gray-900">
+                    {suggestion.title}
+                  </span>
+                  <span className="mt-0.5 shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                     {suggestion.structure_label}
                   </span>
                 </span>
-                <span className="mt-1 block text-sm text-gray-600">{suggestion.angle}</span>
-                <span className="mt-2 block text-xs text-gray-400">
-                  {preparingKey === `suggestion-${index}`
-                    ? dict.say.preparing
-                    : suggestion.why_this_fits}
-                </span>
+                {preparingKey === `suggestion-${index}` && (
+                  <span className="mt-2 block text-xs text-primary-700" role="status">
+                    {dict.say.preparing}
+                  </span>
+                )}
               </button>
             ))}
           </div>
