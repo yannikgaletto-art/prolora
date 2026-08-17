@@ -25,6 +25,11 @@ describe('Pathly mention decision', () => {
       mode: 'adaptive', platform: 'linkedin', productRelevant: true,
       hasSupportingFact: true, communityRulesKnown: true, recentMentionRate: 0.5,
     }).decision).toBe('omit');
+    // 7:1-Regel (17.08.): schon 2 Nennungen in 8 Posts überschreiten die Kadenz.
+    expect(decideProductMention({
+      mode: 'adaptive', platform: 'linkedin', productRelevant: true,
+      hasSupportingFact: true, communityRulesKnown: true, recentMentionRate: 0.25,
+    }).decision).toBe('omit');
   });
 
   test('includes a relevant, supported mention with a placement', () => {

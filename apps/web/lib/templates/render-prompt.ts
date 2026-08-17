@@ -180,6 +180,41 @@ export const PUNCHY_FLOOR_RATIO = 0.35;
 // Story-arc rules (GOAL-RUN9 §5 resonance schema). Replaces the punchy
 // "Structure" subsection for longform templates — Voice/Tension/Anti-pattern
 // rules stay shared, they are not duplicated.
+// RUN11 (17.08.): destilliert aus dem Pathly COVER_LETTER_REGELWERK §7 —
+// dieselben Marker, die ein Anschreiben als KI entlarven, entlarven auch Posts.
+// Zentral hier, damit Template-Drafts UND One-Path-Konzepte identisch schreiben.
+// Exported for the concept engine — one source of truth.
+export const ANTI_AI_MARKER_RULES: string[] = [
+  '--- ANTI-AI MARKERS (hard bans — one violation ruins the post) ---',
+  '- BANNED pattern family "nicht nur X, sondern Y" / "kein X, sondern Y" — the most common AI tell.',
+  '- BANNED negation enumerations: "Es war kein A, keine B, kein C." Say what it WAS, directly.',
+  '- BANNED echo constructs: "Das fühlt sich X an. Und das ist es auch."',
+  '- BANNED universal maxims ("Erfolg entsteht, wenn…"). Use an Ich anchor instead: "Ich habe gelernt, dass…".',
+  '- BANNED insight clichés: "wurde mir klar", "öffnete mir die Augen", "Die Frage lautet…".',
+  '- BANNED fillers: "wirklich", adjectival "echt" ("echter Mehrwert"), "game-changer", "🚀 Exciting news".',
+  '- No em-dashes (—) as a rhythm device. Use periods.',
+  '- Write like a voice message to a friend: colloquial, warm, direct. Openers like',
+  '  "Hey Leute, ich hatte gerade wieder…" or "Kurze Frage: wie viele von euch…" are the register.',
+  '- Sentence length: max ~15 words. One thought per sentence. If a sentence needs a comma pause, split it.',
+  '- Insight stays embedded in the story — never a detached "Lesson learned:" line.',
+  '- The three concepts must open with three DIFFERENT moves (scene / number / question / observation) — never the same opener twice.',
+  '--- END ANTI-AI MARKERS ---',
+];
+
+// Value-first formats (Nutzer-Vorgabe 17.08. + Research: Tipps, Experience-Story,
+// Wendung — ergänzt um belegte Standard-Formate aus dem Creator-Playbook).
+// Vertrauen entsteht durch Value: ~7 Value-Posts pro 1 Produkt-Link (mention.ts).
+export const VALUE_FORMATS: string[] = [
+  'Tipps & Tricks: 2-3 concrete, immediately usable steps from real work — no theory.',
+  'Experience story: what happened, what went wrong, and the better way you found.',
+  'Wendung (twist): it started as X, then flipped — the turn IS the value.',
+  'Behind the scenes: an honest look at how it is actually built/decided, rough edges included.',
+  'Myth-busting: a common piece of advice, disproven with your own evidence.',
+  'Vorher/Nachher: one concrete number or state before and after, plus what changed it.',
+  'Nutzer-/Leser-Story: someone else\'s real result, told with permission and specifics.',
+  'Mini-Anleitung: a short how-to the reader can apply today, scoped to one narrow problem.',
+];
+
 const STRUCTURE_RULES_PUNCHY = [
   'Structure:',
   '- Max. 1–2 lines per paragraph. Whitespace between thoughts. No wall of text.',
@@ -244,6 +279,8 @@ export function buildTemplatePrompt(input: TemplatePromptInput): TemplatePrompt 
     '',
     '--- WRITING QUALITY (non-negotiable, applies to every template) ---',
     ...(longform ? STRUCTURE_RULES_LONGFORM : STRUCTURE_RULES_PUNCHY),
+    '',
+    ...ANTI_AI_MARKER_RULES,
     '',
     'Voice:',
     '- First-person with real stakes. "Ich habe…", "Mir ist aufgefallen…", "Das hat mich…".',

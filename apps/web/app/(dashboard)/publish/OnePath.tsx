@@ -234,6 +234,9 @@ export function OnePath({
           platforms: [...selected],
           adapt_content: platformKinds.size > 1 || undefined,
           output_language: platformKinds.size > 1 ? (locale === 'de' ? 'de' : 'en') : undefined,
+          // create-post verlangt bei adapt_content zwingend einen Mention-Mode
+          // (Bug-Report 17.08.: 400 "Product mention mode is required").
+          product_mention_mode: platformKinds.size > 1 ? 'adaptive' : undefined,
           scheduled_at: schedule.iso,
           scheduled_tz: schedule.iso ? schedule.tz : undefined,
           first_comment: firstComment.trim() || undefined,

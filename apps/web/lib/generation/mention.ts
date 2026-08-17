@@ -30,7 +30,9 @@ export function decideProductMention(input: ProductMentionInput): ProductMention
   if (!input.hasSupportingFact) {
     return omit('No confirmed fact supports a concrete product reference.', 0.95, ['missing_fact']);
   }
-  if (input.mode === 'adaptive' && input.recentMentionRate >= 0.35) {
+  // 7:1-Regel (Nutzer-Entscheidung 17.08.): Vertrauen entsteht durch Value —
+  // höchstens ~1 von 8 Posts nennt das Produkt (12,5 % statt vorher 35 %).
+  if (input.mode === 'adaptive' && input.recentMentionRate >= 0.125) {
     return omit('Recent product-mention cadence is already high.', 0.85, ['cadence_cap']);
   }
   return {

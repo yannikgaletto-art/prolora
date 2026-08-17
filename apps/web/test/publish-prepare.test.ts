@@ -6,6 +6,7 @@ import type { PostConcept } from '@prolora/shared';
 import { derivePlatforms, pickBestConcept } from '@/lib/publish/prepare';
 import { coverageTone } from '@/app/(dashboard)/publish/pipeline/cockpit-logic';
 import { suggestAngles } from '@/lib/content/angle-service';
+import { ANTI_AI_MARKER_RULES, VALUE_FORMATS } from '@/lib/templates/render-prompt';
 
 function concept(overrides: Partial<PostConcept>): PostConcept {
   return {
@@ -106,6 +107,29 @@ describe('suggestAngles material diversity (RUN11 feedback 17.08.)', () => {
     });
     for (const angle of angles) {
       expect(angle.title).not.toMatch(/^Deine Zahl als Story|^Founder-Einblick:/);
+    }
+  });
+});
+
+describe('anti-AI marker rules (Regelwerk §7, 17.08.)', () => {
+  const rules = ANTI_AI_MARKER_RULES.join('\n');
+
+  it('bans the classic AI tells the user flagged', () => {
+    expect(rules).toContain('nicht nur X, sondern Y');
+    expect(rules).toContain('negation enumerations');
+    expect(rules).toContain('Das fühlt sich X an. Und das ist es auch.');
+    expect(rules).toContain('em-dashes');
+  });
+
+  it('demands friend-register and short sentences', () => {
+    expect(rules).toContain('voice message to a friend');
+    expect(rules).toMatch(/max ~15 words/);
+  });
+
+  it('ships the value formats the user asked for', () => {
+    const formats = VALUE_FORMATS.join('\n');
+    for (const needle of ['Tipps & Tricks', 'Experience story', 'Wendung', 'Myth-busting', 'Vorher/Nachher', 'Behind the scenes']) {
+      expect(formats).toContain(needle);
     }
   });
 });

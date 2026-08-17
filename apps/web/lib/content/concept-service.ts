@@ -20,7 +20,13 @@ import { getPlatformRules } from '@/lib/validation/platform-rules';
 import { listProofAssets, normalizeProfileFields } from '@/lib/product/profile';
 import { listContentReferences } from '@/lib/content/references';
 import { matchReferences } from '@/lib/content/reference-matcher';
-import { LONGFORM_MIN_BUDGET, PLATFORM_NOTES, STYLE_PRESET_RULES } from '@/lib/templates/render-prompt';
+import {
+  ANTI_AI_MARKER_RULES,
+  LONGFORM_MIN_BUDGET,
+  PLATFORM_NOTES,
+  STYLE_PRESET_RULES,
+  VALUE_FORMATS,
+} from '@/lib/templates/render-prompt';
 import type { GenerationContext, ProductMentionMode } from '@/lib/generation/types';
 import { assertGroundedDraft, resolveManualGenerationContexts } from '@/lib/generation/manual';
 
@@ -258,17 +264,28 @@ export async function generateConcepts(
     // (Hormozi, Welsh, Koe, Abdaal — same canon as STYLE_PRESET_RULES). These
     // are structural rules, never voice imitation: the workspace voice wins.
     '--- HIGH-PERFORMER MECHANICS (apply to every concept) ---',
-    '- Hook: the first line must work standalone in a feed preview — a bold specific claim,',
-    '  a number with tension, or a relatable enemy/frustration. Never a warm-up sentence.',
+    '- Hook: the first 3-4 lines must make a friend want to keep reading — a concrete scene,',
+    '  a number with tension, or a frustration the reader knows. Never a warm-up sentence.',
     '- Proof beats promise: lead with the receipt (number, date, concrete situation), not the pitch.',
     '- One idea per post. If a second idea appears, cut it — depth on one point outperforms breadth.',
     '- Whitespace mechanic: max 1-2 lines per paragraph; the line before the fold should create',
     '  a cliffhanger that earns the "see more" click.',
-    '- End with ONE of: a quotable one-liner, a hard rule the reader can apply today, or a',
-    '  debatable question. Never a soft "Was denkt ihr?" filler CTA.',
+    '- End with a return to the hook plus ONE non-googleable question to the readers,',
+    '  or one hard rule they can apply today. Never a sales CTA, never soft "Was denkt ihr?" filler.',
     '- Links never in the post body — first comment only (platform reach mechanic).',
     ...(creatorStyleRule ? ['', `Workspace creator style preference: ${creatorStyleRule}`] : []),
     '--- END HIGH-PERFORMER MECHANICS ---',
+    '',
+    ...ANTI_AI_MARKER_RULES,
+    '',
+    // 7:1-Vertrauensregel: der Post muss auch OHNE Produktnennung tragen.
+    '--- VALUE FIRST (7:1 rule) ---',
+    'The post must deliver standalone value — trust is built by giving, not pitching.',
+    'Pick the value format that fits the material best:',
+    ...VALUE_FORMATS.map((format) => `- ${format}`),
+    'The product appears at most as a restrained closing mention, and only when the',
+    'mention decision below allows it. Roughly 7 of 8 posts carry NO product link at all.',
+    '--- END VALUE FIRST ---',
     '',
     ...settingsToPromptLines(input.settings),
     `Hard ceiling per canonical_content: ${effectiveMax} characters${
