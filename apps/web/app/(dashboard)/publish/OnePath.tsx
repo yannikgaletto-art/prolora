@@ -6,7 +6,7 @@
 // Posten click (RUN9 D4); media generation only appears in review (D2).
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import type { AppLocale, CreatePostResponse, MediaItem } from '@prolora/shared';
+import type { AngleSuggestion, AppLocale, CreatePostResponse, MediaItem } from '@prolora/shared';
 import { Button } from '@/app/components/Button';
 import { Card } from '@/app/components/Card';
 import { Textarea } from '@/app/components/Input';
@@ -45,10 +45,13 @@ export function OnePath({
   connections,
   locale,
   mediaFeature,
+  suggestions = [],
 }: {
   connections: ConnectionWithLimit[];
   locale: AppLocale;
   mediaFeature: FeatureState;
+  /** "Prolora empfiehlt heute" — deterministic, 0 credits; empty w/o profile. */
+  suggestions?: AngleSuggestion[];
 }) {
   const dict = getOnePathDict(locale);
   const run7 = getRun7Dict(locale);
@@ -57,6 +60,8 @@ export function OnePath({
   const [stage, setStage] = useState<Stage>('say');
   const [topic, setTopic] = useState('');
   const [preparing, setPreparing] = useState(false);
+  /** Which trigger is loading: 'topic' or 'suggestion-<index>' — for spinners. */
+  const [preparingKey, setPreparingKey] = useState<string | null>(null);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [draft, setDraft] = useState<PreparedDraft | null>(null);
   const [alternatives, setAlternatives] = useState<PreparedDraft[]>([]);
@@ -141,18 +146,14 @@ export function OnePath({
     setStage('review');
   }
 
-  async function handlePrepare() {
-    if (topic.trim().length < 3) {
-      setError(dict.say.tooShort);
-      return;
-    }
+  async function runPrepare(body: { topic?: string; angle?: string }) {
     setError(null);
     setFollowUps([]);
     setPreparing(true);
     try {
       const result = await fetchApi<PrepareResult>('/v1/publish/prepare', {
         method: 'POST',
-        body: JSON.stringify({ topic: topic.trim() }),
+        body: JSON.stringify(body),
       });
       if (!result.draft) {
         setFollowUps(result.follow_up_questions);
@@ -163,7 +164,27 @@ export function OnePath({
       setError(errorMessage(requestError));
     } finally {
       setPreparing(false);
+      setPreparingKey(null);
     }
+  }
+
+  async function handlePrepare() {
+    if (topic.trim().length < 3) {
+      setError(dict.say.tooShort);
+      return;
+    }
+    setPreparingKey('topic');
+    await runPrepare({ topic: topic.trim() });
+  }
+
+  // Vorschlag angeklickt (der zweite Weg neben dem eigenen Thema): der Angle
+  // trägt den Post; ein zusätzlich getipptes Thema fließt als Kontext mit ein.
+  async function handlePickSuggestion(suggestion: AngleSuggestion, index: number) {
+    setPreparingKey(`suggestion-${index}`);
+    await runPrepare({
+      angle: suggestion.angle,
+      topic: topic.trim().length >= 3 ? topic.trim() : undefined,
+    });
   }
 
   function swapAlternative() {
@@ -328,8 +349,13 @@ export function OnePath({
               </div>
             )}
             {error && <p className="text-sm text-red-600">{error}</p>}
-            <Button type="button" onClick={() => void handlePrepare()} loading={preparing}>
-              {preparing ? dict.say.preparing : dict.say.submit}
+            <Button
+              type="button"
+              onClick={() => void handlePrepare()}
+              loading={preparing && preparingKey === 'topic'}
+              disabled={preparing}
+            >
+              {preparing && preparingKey === 'topic' ? dict.say.preparing : dict.say.submit}
             </Button>
             {preparing && (
               <p className="text-center text-xs text-gray-500" role="status">
@@ -338,6 +364,43 @@ export function OnePath({
             )}
           </div>
         </Card>
+
+        {/* Der zweite Weg (RUN11-Follow-up): Prolora kennt das Produkt und
+            schlägt drei fertige Blickwinkel vor — deterministisch, 0 Credits.
+            Erst der Klick auf einen Vorschlag kostet den einen Draft-Credit. */}
+        {suggestions.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <p className="text-center text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">
+              {dict.say.orPick}
+            </p>
+            {suggestions.slice(0, 3).map((suggestion, index) => (
+              <button
+                key={`${suggestion.lens}-${index}`}
+                type="button"
+                disabled={preparing}
+                onClick={() => void handlePickSuggestion(suggestion, index)}
+                className={`rounded-xl border bg-white p-4 text-left transition-colors ${
+                  preparingKey === `suggestion-${index}`
+                    ? 'border-primary-400 ring-1 ring-primary-200'
+                    : 'border-gray-200 hover:border-primary-300 hover:bg-primary-50/40'
+                } disabled:opacity-60`}
+              >
+                <span className="flex items-start justify-between gap-3">
+                  <span className="text-sm font-semibold text-gray-900">{suggestion.title}</span>
+                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    {suggestion.structure_label}
+                  </span>
+                </span>
+                <span className="mt-1 block text-sm text-gray-600">{suggestion.angle}</span>
+                <span className="mt-2 block text-xs text-gray-400">
+                  {preparingKey === `suggestion-${index}`
+                    ? dict.say.preparing
+                    : suggestion.why_this_fits}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <p className="text-center text-xs text-gray-500">
           <Link href="/publish/start" className="hover:text-primary-700 hover:underline">
             {dict.say.guidedLink} →

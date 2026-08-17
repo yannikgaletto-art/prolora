@@ -20,7 +20,7 @@ import { getPlatformRules } from '@/lib/validation/platform-rules';
 import { listProofAssets, normalizeProfileFields } from '@/lib/product/profile';
 import { listContentReferences } from '@/lib/content/references';
 import { matchReferences } from '@/lib/content/reference-matcher';
-import { LONGFORM_MIN_BUDGET, PLATFORM_NOTES } from '@/lib/templates/render-prompt';
+import { LONGFORM_MIN_BUDGET, PLATFORM_NOTES, STYLE_PRESET_RULES } from '@/lib/templates/render-prompt';
 import type { GenerationContext, ProductMentionMode } from '@/lib/generation/types';
 import { assertGroundedDraft, resolveManualGenerationContexts } from '@/lib/generation/manual';
 
@@ -221,6 +221,12 @@ export async function generateConcepts(
 
   const language = (input.output_language ?? context?.voice_language?.trim()) || 'de';
   const tone = context?.voice_tone?.trim() || 'casual';
+  // RUN8 Phase 3 preference (welsh_short / hormozi_carousel / …) now also
+  // shapes concepts, not only template drafts. 'neutral' adds nothing.
+  const creatorStyleRule =
+    context?.creator_style && context.creator_style !== 'neutral'
+      ? STYLE_PRESET_RULES[context.creator_style]
+      : null;
   const [minLength] = LENGTH_WINDOWS[input.settings.length];
   const effectiveMax = Math.min(LENGTH_WINDOWS[input.settings.length][1], budget);
 
@@ -247,6 +253,22 @@ export async function generateConcepts(
     'Writing quality: no generic openings ("In today\'s fast-paced world", "KI verändert alles").',
     'Every paragraph must introduce evidence, reveal an observation, explain a mechanism, give an',
     'action, or create justified tension. Short paragraphs, whitespace, strongest line first.',
+    '',
+    // GOAL-RUN11: mechanics distilled from the platform's proven top performers
+    // (Hormozi, Welsh, Koe, Abdaal — same canon as STYLE_PRESET_RULES). These
+    // are structural rules, never voice imitation: the workspace voice wins.
+    '--- HIGH-PERFORMER MECHANICS (apply to every concept) ---',
+    '- Hook: the first line must work standalone in a feed preview — a bold specific claim,',
+    '  a number with tension, or a relatable enemy/frustration. Never a warm-up sentence.',
+    '- Proof beats promise: lead with the receipt (number, date, concrete situation), not the pitch.',
+    '- One idea per post. If a second idea appears, cut it — depth on one point outperforms breadth.',
+    '- Whitespace mechanic: max 1-2 lines per paragraph; the line before the fold should create',
+    '  a cliffhanger that earns the "see more" click.',
+    '- End with ONE of: a quotable one-liner, a hard rule the reader can apply today, or a',
+    '  debatable question. Never a soft "Was denkt ihr?" filler CTA.',
+    '- Links never in the post body — first comment only (platform reach mechanic).',
+    ...(creatorStyleRule ? ['', `Workspace creator style preference: ${creatorStyleRule}`] : []),
+    '--- END HIGH-PERFORMER MECHANICS ---',
     '',
     ...settingsToPromptLines(input.settings),
     `Hard ceiling per canonical_content: ${effectiveMax} characters${

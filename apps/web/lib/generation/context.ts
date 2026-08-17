@@ -1,6 +1,6 @@
 // One context resolver prevents Writer, templates, and community drafts from
 // drifting into different truth/style policies. Sample loaders never select raw content.
-import { getServiceDb } from '@/lib/db';
+import { getServiceDb, isMissingSchemaError } from '@/lib/db';
 import { listFactsAt, type ConfirmedFact } from '@/lib/product/facts';
 import { retrieveGoldenSamples, type RetrievableSample } from '@/lib/writer/golden-bundle';
 import { hashCanonicalJson } from '@/lib/writer/hash';
@@ -51,6 +51,8 @@ async function loadSamples(workspaceId: string): Promise<RetrievableSample[]> {
     .eq('workspace_id', workspaceId)
     .eq('active', true)
     .returns<SamplePromptRow[]>();
+  // Schema-drift guard: migrations 021/023 not live yet ⇒ no samples, no 500.
+  if (error && isMissingSchemaError(error.code)) return [];
   if (error) throw new Error(`[generation-context] sample lookup failed: ${error.message}`);
   return (data ?? []).map((row) => ({
     id: row.id,
@@ -90,6 +92,10 @@ async function loadPromptRules(workspaceId: string): Promise<DnaPromptRule[]> {
     .eq('workspace_id', workspaceId)
     .eq('status', 'active')
     .maybeSingle<{ prompt_rules: DnaPromptRule[] }>();
+  // Schema-drift guard (Ursache des /publish/prepare-500ers am 2026-08-17):
+  // `content_dna_profiles` (Migration 021) ist live noch nicht angewendet.
+  // Ohne DNA-Profil gibt es schlicht keine gelernten Regeln — kein Fehler.
+  if (error && isMissingSchemaError(error.code)) return [];
   if (error) throw new Error(`[generation-context] DNA lookup failed: ${error.message}`);
   return data?.prompt_rules ?? [];
 }

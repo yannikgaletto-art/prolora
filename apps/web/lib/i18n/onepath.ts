@@ -12,6 +12,7 @@ const dictionaries = {
       preparingHint: 'Text, Kanal und Zeitpunkt werden vorbereitet. Dauert ein paar Sekunden.',
       tooShort: 'Beschreibe dein Thema mit mindestens ein paar Wörtern.',
       guidedLink: 'Lieber geführt mit Zielen und Blickwinkeln? Zum geführten Entwurf',
+      orPick: 'Oder starte mit einem Vorschlag von Prolora',
     },
     review: {
       title: 'Dein Post ist fertig — prüf ihn kurz.',
@@ -64,6 +65,7 @@ const dictionaries = {
       preparingHint: 'Text, channel, and timing are being prepared. Takes a few seconds.',
       tooShort: 'Describe your topic with at least a few words.',
       guidedLink: 'Prefer a guided flow with goals and angles? Open the guided draft',
+      orPick: 'Or start from a Prolora suggestion',
     },
     review: {
       title: 'Your post is ready — give it a quick check.',
@@ -116,6 +118,7 @@ const dictionaries = {
       preparingHint: 'Se preparan texto, canal y horario. Tarda unos segundos.',
       tooShort: 'Describe tu tema con al menos unas palabras.',
       guidedLink: '¿Prefieres el flujo guiado con objetivos y enfoques? Abrir el borrador guiado',
+      orPick: 'O empieza con una sugerencia de Prolora',
     },
     review: {
       title: 'Tu post está listo — revísalo brevemente.',

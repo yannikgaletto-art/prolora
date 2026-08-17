@@ -1,7 +1,7 @@
 // GOAL-RUN11 One Path: ein Aufruf komponiert Draft + Kanal-Default + Slot aus
 // bestehenden Bausteinen. Kein neuer Publishing-Code — veröffentlicht wird
 // weiterhin nur über POST /v1/posts nach explizitem Nutzer-Klick (RUN9 D4).
-import type { ConceptLens, PlatformType, PostConcept } from '@prolora/shared';
+import type { ConceptLens, ContentGoal, PlatformType, PostConcept } from '@prolora/shared';
 import { DEFAULT_CONCEPT_SETTINGS } from '@prolora/shared';
 import { generateConcepts } from '@/lib/content/concept-service';
 import { getWorkspaceContext } from '@/lib/discovery/auto-context';
@@ -75,7 +75,14 @@ function toDraft(concept: PostConcept): PreparedDraft {
 
 export async function preparePost(
   workspaceId: string,
-  input: { topic: string; output_language?: 'de' | 'en' }
+  input: {
+    /** Free-text idea — optional when the user picked a suggested angle. */
+    topic?: string;
+    /** Angle card text from the deterministic suggestions (RUN9 D7). */
+    angle?: string;
+    content_goal?: ContentGoal;
+    output_language?: 'de' | 'en';
+  }
 ): Promise<PrepareResult> {
   const [connections, context] = await Promise.all([
     getConnectionsWithCharacterLimits(workspaceId),
@@ -89,8 +96,9 @@ export async function preparePost(
   // 'authority' is the neutral default lens set for a free-text topic — the
   // guided flow (/publish/start) stays the place to pick goals deliberately.
   const response = await generateConcepts(workspaceId, {
-    content_goal: 'authority',
+    content_goal: input.content_goal ?? 'authority',
     user_idea: input.topic,
+    angle: input.angle,
     settings: DEFAULT_CONCEPT_SETTINGS,
     target_platforms: targetPlatforms,
     output_language: language,
