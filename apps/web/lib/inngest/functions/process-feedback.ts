@@ -4,6 +4,7 @@ import { getServiceDb, type RawFeedbackRow } from '@/lib/db';
 import { analyzeFeedback } from '@/lib/ai/analyze-feedback';
 import { generateEmbedding } from '@/lib/ai/embeddings';
 import { CREDIT_COSTS, type FeedbackAnalysis } from '@prolora/shared';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 const DUPLICATE_THRESHOLD = 0.92;
 
@@ -15,6 +16,8 @@ export const processFeedback = inngest.createFunction(
   },
   { event: 'feedback/process' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { rawFeedbackId, workspaceId } = event.data;
 
     // 1. Load the raw feedback — it is ALREADY durable (Invariante 4).
@@ -201,6 +204,8 @@ export const batchProcessFeedback = inngest.createFunction(
   },
   { event: 'feedback/batch-process' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { workspaceId, limit } = event.data;
 
     const unprocessed = await step.run('find-unprocessed', async () => {

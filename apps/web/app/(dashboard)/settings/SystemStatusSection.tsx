@@ -7,6 +7,8 @@ import { getDiscoveryProviderStatus } from '@/lib/discovery/providers';
 import type { AppLocale } from '@prolora/shared';
 import { getRun7Dict } from '@/lib/i18n/run7';
 import { IntegrationsCard, type ProviderCardEntry } from './IntegrationsCard';
+import { AutomationKillSwitch } from './AutomationKillSwitch';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 // `reuse_connection` providers hold nothing in the credential store, so their
 // "connected" answer has to come from the connection they borrow — asking the
@@ -46,9 +48,10 @@ const STATE_TONES: Record<FeatureState['state'], 'green' | 'amber' | 'gray'> = {
 };
 
 export async function SystemStatusSection({ workspaceId, locale }: { workspaceId: string; locale: AppLocale }) {
-  const [status, integrations] = await Promise.all([
+  const [status, integrations, automationEnabled] = await Promise.all([
     getSystemStatus(workspaceId, locale),
     loadIntegrationEntries(workspaceId),
+    isAutomationEnabled(),
   ]);
   const dict = getRun7Dict(locale).system;
   const featureLabels: Record<keyof typeof status.features, string> = {
@@ -60,6 +63,7 @@ export async function SystemStatusSection({ workspaceId, locale }: { workspaceId
 
   return (
     <div className="space-y-4">
+      <AutomationKillSwitch initialEnabled={automationEnabled} />
       <IntegrationsCard initial={integrations} />
 
       <Card title={dict.title} description={dict.description}>

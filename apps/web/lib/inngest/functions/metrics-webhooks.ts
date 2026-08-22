@@ -6,6 +6,7 @@ import { createAdapter } from '@/lib/adapters';
 import { PlatformError } from '@/lib/adapters/types';
 import { decrypt } from '@/lib/auth/encryption';
 import { reconcileImpact } from '@/lib/scoring/reconcile';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const WEBHOOK_DISABLE_AFTER_FAILURES = 10;
@@ -18,6 +19,8 @@ export const collectMetrics = inngest.createFunction(
   },
   { event: 'metrics/collect' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const collection = await step.run('fetch-platform-metrics', async () => {
       const { postItemId, workspaceId } = event.data;
       const db = getServiceDb();
@@ -89,6 +92,8 @@ export const scheduledMetricsCollection = inngest.createFunction(
   },
   { cron: '0 */4 * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const items = await step.run('find-published-posts', async () => {
       const db = getServiceDb();
       const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -121,6 +126,8 @@ export const fireWebhooks = inngest.createFunction(
   },
   { event: 'webhooks/fire' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { workspaceId, event: eventType, payload } = event.data;
 
     return step.run('deliver-webhooks', async () => {
@@ -206,6 +213,8 @@ export const dailyDigest = inngest.createFunction(
   },
   { cron: '0 8 * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     return step.run('generate-digests', async () => {
       // Email delivery (Resend) is not part of the backend scope yet —
       // graceful no-op instead of a crashing cron.
@@ -225,6 +234,8 @@ export const notifyVoters = inngest.createFunction(
   },
   { event: 'board/notify-voters' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     return step.run('send-notifications', async () => {
       const { boardItemId, newStatus } = event.data;
       const db = getServiceDb();

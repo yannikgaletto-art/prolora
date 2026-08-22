@@ -2,6 +2,7 @@ import { inngest } from '../client';
 import { getServiceDb, type FeedbackSourceRow } from '@/lib/db';
 import { BaseListener, insertRawFeedbackItems } from '@/lib/listeners/base-listener';
 import { RedditListener } from '@/lib/listeners/reddit-listener';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 const MAX_SOURCES_PER_RUN = 200;
 
@@ -32,6 +33,8 @@ export const pollFeedbackSources = inngest.createFunction(
   },
   [{ cron: '*/30 * * * *' }, { event: 'feedback/poll' }],
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     // Cron invocations carry no event data.
     const filter: PollEventData =
       event?.name === 'feedback/poll' ? ((event.data ?? {}) as PollEventData) : {};

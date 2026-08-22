@@ -9,6 +9,7 @@ import { communityExternalId, scanCommunity } from '@/lib/discovery/thread-radar
 import { getDiscoveryProvider, toDiscoveryProvider } from '@/lib/discovery/providers';
 import type { DiscoveryProvider } from '@/lib/integrations/registry';
 import type { IntegrationProvider } from '@/lib/integrations/types';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 export const threadRadar = inngest.createFunction(
   {
@@ -18,6 +19,8 @@ export const threadRadar = inngest.createFunction(
   },
   { event: 'discovery/thread-radar' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { communityId, workspaceId } = event.data;
 
     const loaded = await step.run('load-community-and-context', async () => {
@@ -72,6 +75,8 @@ export const scheduledThreadRadar = inngest.createFunction(
   },
   { cron: '*/15 * * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const communities = await step.run('scan-active-communities', async () => {
       const db = getServiceDb();
       // Every platform, not just Reddit — `platform` became genuinely
@@ -106,6 +111,8 @@ export const communityHealthCheck = inngest.createFunction(
   },
   { event: 'discovery/community-health' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { workspaceId } = event.data;
 
     return step.run('check-communities', async () => {
@@ -207,6 +214,8 @@ export const scheduledCommunityHealth = inngest.createFunction(
   },
   { cron: '0 3 * * 0' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     // Weekly counter reset (cooldown tracking) — Sunday 03:00 UTC.
     await step.run('reset-weekly-counters', async () => {
       const db = getServiceDb();
@@ -246,6 +255,8 @@ export const opportunityExpiry = inngest.createFunction(
   },
   { cron: '0 */12 * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     return step.run('expire-old-opportunities', async () => {
       const db = getServiceDb();
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -269,6 +280,8 @@ export const optimalTiming = inngest.createFunction(
   },
   { event: 'discovery/optimal-timing' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { workspaceId, platform } = event.data;
 
     return step.run('analyze-timing', async () => {

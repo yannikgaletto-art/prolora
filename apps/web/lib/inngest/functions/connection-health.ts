@@ -18,6 +18,7 @@
 import { inngest } from '../client';
 import { CONNECTION_ROW_COLUMNS, getServiceDb, type ConnectionRow } from '@/lib/db';
 import { classifyConnectionHealth, shouldRequestRefresh } from '@/lib/connections/health';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 export const connectionHealthMonitor = inngest.createFunction(
   {
@@ -26,6 +27,8 @@ export const connectionHealthMonitor = inngest.createFunction(
   },
   { cron: '0 6 * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const summary = await step.run('classify-connections', async () => {
       const db = getServiceDb();
       const { data: workspaces, error: workspaceError } = await db

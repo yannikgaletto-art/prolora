@@ -6,6 +6,7 @@ import { inngest } from '@/lib/inngest/client';
 import { getServiceDb, type MediaGenerationRow } from '@/lib/db';
 import { ensureMediaBucket, MEDIA_BUCKET } from '@/lib/media/transform';
 import { commitReservation, releaseReservation } from '@/lib/media/generation';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 const IMAGE_SIZES: Record<MediaGenerationRow['format'], string> = {
   square: '1024x1024',
@@ -29,6 +30,8 @@ export const generateMedia = inngest.createFunction(
   { id: 'media-generate', retries: 2, concurrency: [{ limit: 2, key: 'event.data.workspaceId' }] },
   { event: 'media/generate' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { generationId, workspaceId } = event.data;
     const db = getServiceDb();
 

@@ -8,6 +8,7 @@ import { createAdapter } from '@/lib/adapters';
 import { PlatformError, type MediaAttachment, type RateLimitInfo } from '@/lib/adapters/types';
 import { prepareImageForPlatform, createSignedMediaUrl } from '@/lib/media/transform';
 import { legacyReconciliationMessage } from '@/lib/posts/reconciliation-state';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 const POST_GROUP_PUBLISH_COLUMNS = [
   'id',
@@ -371,6 +372,8 @@ export const publishPost = inngest.createFunction(
   },
   { event: 'post/publish' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { published: false, skipped: true, reason: 'automation disabled' };
+
     const { postItemId, workspaceId } = event.data;
 
     // 1. Load immutable inputs. The one-shot claim happens inside the same
@@ -600,6 +603,8 @@ export const publishPostEffects = inngest.createFunction(
   },
   { event: 'post/published-effects' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { delivered: false, skipped: true, reason: 'automation disabled' };
+
     const { postItemId, workspaceId } = event.data;
     const prepared = await step.run('load-published-post', async () => {
       const db = getServiceDb();
@@ -669,6 +674,8 @@ export const reconcileExpiredPublishing = inngest.createFunction(
   },
   { cron: '*/15 * * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const reconciled = await step.run('mark-expired-publish-claims', () =>
       reconcileExpiredPostItemClaims()
     );
@@ -831,6 +838,8 @@ export const publishScheduled = inngest.createFunction(
   },
   { cron: '*/5 * * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const due = await step.run('find-due-posts', async () => {
       const db = getServiceDb();
       const nowIso = new Date().toISOString();
@@ -868,6 +877,8 @@ export const publishFirstComment = inngest.createFunction(
   },
   { event: 'post/first-comment' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { commented: false, skipped: true, reason: 'automation disabled' };
+
     // Give the platform time to fully materialize the post first.
     await step.sleep('wait-for-platform', '30m');
 

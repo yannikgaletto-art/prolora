@@ -8,6 +8,7 @@ import {
 } from '@/lib/auth/token-manager';
 import { createAdapter } from '@/lib/adapters';
 import { PlatformError } from '@/lib/adapters/types';
+import { isAutomationEnabled } from '@/lib/system/kill-switch';
 
 export const refreshTokens = inngest.createFunction(
   {
@@ -17,6 +18,8 @@ export const refreshTokens = inngest.createFunction(
   },
   { event: 'tokens/refresh' },
   async ({ event, step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const { connectionId, workspaceId } = event.data;
 
     return step.run('acquire-lock-and-refresh', async () => {
@@ -43,6 +46,8 @@ export const tokenHealthCheck = inngest.createFunction(
   },
   { cron: '0 */6 * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const summary = await step.run('check-all-connections', async () => {
       const db = getServiceDb();
       const { data: workspaces, error: workspaceError } = await db.from('workspaces').select('id').returns<Array<{ id: string }>>();
@@ -136,6 +141,8 @@ export const refreshExpiringTokens = inngest.createFunction(
   },
   { cron: '*/30 * * * *' },
   async ({ step }) => {
+    if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
+
     const expiring = await step.run('find-expiring', async () => {
       const db = getServiceDb();
       const in1h = new Date(Date.now() + 60 * 60 * 1000).toISOString();
