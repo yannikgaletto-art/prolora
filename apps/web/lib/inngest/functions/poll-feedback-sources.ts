@@ -21,17 +21,22 @@ interface PollEventData {
   sourceId?: string;
 }
 
-// Polls every active feedback source. Runs on a 30-minute cron for ALL
-// workspaces, or on demand via 'feedback/poll' (optionally narrowed to one
-// workspace/source). Per-source failures are logged and skipped — one broken
-// source must never stall the others (Invariante 4).
+// Polls active feedback sources on demand via 'feedback/poll' (optionally
+// narrowed to one workspace/source). Per-source failures are logged and
+// skipped — one broken source must never stall the others (Invariante 4).
+//
+// The 30-minute cron that used to sweep ALL workspaces was removed to stop
+// Inngest's own per-dispatch usage while the product is idle — Inngest bills
+// every cron tick regardless of what the handler does, so the kill switch
+// below couldn't prevent it. Re-add `{ cron: '*/30 * * * *' }` to the trigger
+// array below to resume the periodic sweep for every workspace.
 export const pollFeedbackSources = inngest.createFunction(
   {
     id: 'poll-feedback-sources',
     retries: 1,
     concurrency: [{ limit: 1 }],
   },
-  [{ cron: '*/30 * * * *' }, { event: 'feedback/poll' }],
+  { event: 'feedback/poll' },
   async ({ event, step }) => {
     if (!(await isAutomationEnabled())) return { skipped: true, reason: 'automation disabled' };
 
